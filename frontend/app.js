@@ -1,5 +1,13 @@
 function createTable(data, columns) {
-    if (!data || data.length === 0) return '<p>No data available</p>';
+    // Create a div to hold either the table or the "no data" message
+    const container = document.createElement('div');
+    
+    if (!data || data.length === 0) {
+        const p = document.createElement('p');
+        p.textContent = 'No data available';
+        container.appendChild(p);
+        return container;
+    }
 
     const table = document.createElement('table');
     
@@ -26,8 +34,10 @@ function createTable(data, columns) {
         tbody.appendChild(tr);
     });
     table.appendChild(tbody);
-
-    return table;
+    
+    // Add the table to the container
+    container.appendChild(table);
+    return container;
 }
 
 function updateStatus(message, isError = false) {
@@ -38,18 +48,18 @@ function updateStatus(message, isError = false) {
 
 async function uploadFiles() {
     try {
-        const bankFile = document.getElementById("bankFile").files[0];
-        const ledgerFile = document.getElementById("ledgerFile").files[0];
+        const gstr2bFile = document.getElementById("gstr2bFile").files[0];
+        const tallyFile = document.getElementById("tallyFile").files[0];
         
-        if (!bankFile || !ledgerFile) {
-            throw new Error("Please select both bank statement and ledger files");
+        if (!gstr2bFile || !tallyFile) {
+            throw new Error("Please select both GSTR2B and Tally files");
         }
 
         updateStatus("Uploading files...");
         
         const formData = new FormData();
-        formData.append("bank_file", bankFile);
-        formData.append("ledger_file", ledgerFile);
+        formData.append("bank_file", gstr2bFile);  // Keep this name for backend compatibility
+        formData.append("ledger_file", tallyFile);  // Keep this name for backend compatibility
 
         const response = await fetch("http://127.0.0.1:8000/upload/", {
             method: "POST",
@@ -74,12 +84,24 @@ async function uploadFiles() {
 
         // Update unmatched transactions tables
         const unmatchedTable = document.getElementById('unmatchedTable');
-        unmatchedTable.innerHTML = `
-            <h3>Unmatched Bank Transactions</h3>
-            ${createTable(data.unmatched_bank, ['date', 'amount', 'vendor', 'description']).outerHTML}
-            <h3>Unmatched Ledger Transactions</h3>
-            ${createTable(data.unmatched_ledger, ['date', 'amount', 'vendor', 'description']).outerHTML}
-        `;
+        // Create container for unmatched GSTR2B transactions
+        const gstr2bDiv = document.createElement('div');
+        const gstr2bHeader = document.createElement('h3');
+        gstr2bHeader.textContent = 'Unmatched GSTR2B Transactions';
+        gstr2bDiv.appendChild(gstr2bHeader);
+        gstr2bDiv.appendChild(createTable(data.unmatched_bank, ['date', 'amount', 'vendor', 'reference']));
+
+        // Create container for unmatched Tally transactions
+        const tallyDiv = document.createElement('div');
+        const tallyHeader = document.createElement('h3');
+        tallyHeader.textContent = 'Unmatched Tally Transactions';
+        tallyDiv.appendChild(tallyHeader);
+        tallyDiv.appendChild(createTable(data.unmatched_ledger, ['date', 'amount', 'vendor', 'reference']));
+
+        // Clear and update the unmatched table container
+        unmatchedTable.innerHTML = '';
+        unmatchedTable.appendChild(gstr2bDiv);
+        unmatchedTable.appendChild(tallyDiv);
 
     } catch (error) {
         console.error("Upload error:", error);

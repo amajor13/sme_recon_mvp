@@ -2,7 +2,68 @@ from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import pandas as pd
 import os
+import re
 from .reconciliation import reconcile_transactions
+
+def clean_numeric_values(series):
+    """
+    Clean and convert a pandas series to numeric values, handling various formats:
+    - Remove currency symbols (₹, $, etc.)
+    - Remove commas from numbers (1,234.56 -> 1234.56)
+    - Remove leading/trailing whitespace
+    - Convert parentheses to negative numbers ((100) -> -100)
+    - Handle percentage values
+    - Handle text representation of numbers ('five thousand' -> 5000)
+    
+    Args:
+        series: pandas Series containing the values to clean
+    
+    Returns:
+        pandas Series with cleaned numeric values
+    """
+    def clean_single_value(val):
+        if pd.isna(val):
+            return pd.NA
+        
+        # Convert to string for processing
+        val = str(val).strip()
+        
+        # Remove currency symbols and other common prefixes/suffixes
+        val = re.sub(r'[₹$€£¥]', '', val)
+        
+        # Remove commas
+        val = val.replace(',', '')
+        
+        # Handle parentheses for negative numbers
+        if val.startswith('(') and val.endswith(')'):
+            val = '-' + val[1:-1]
+        
+        # Handle percentage values
+        if '%' in val:
+            val = val.replace('%', '')
+            try:
+                return float(val) / 100
+            except ValueError:
+                return pd.NA
+        
+        # Handle text numbers (basic implementation)
+        text_numbers = {
+            'zero': 0, 'one': 1, 'two': 2, 'three': 3, 'four': 4,
+            'five': 5, 'six': 6, 'seven': 7, 'eight': 8, 'nine': 9,
+            'ten': 10, 'hundred': 100, 'thousand': 1000, 'lakh': 100000,
+            'lakhs': 100000, 'crore': 10000000, 'crores': 10000000
+        }
+        
+        if val.lower() in text_numbers:
+            return text_numbers[val.lower()]
+        
+        # Try to convert to float
+        try:
+            return float(val)
+        except ValueError:
+            return pd.NA
+    
+    return series.apply(clean_single_value)
 
 
 app = FastAPI()
@@ -151,71 +212,116 @@ async def upload_files(
         # Column mapping for different file types
         def map_columns(df: pd.DataFrame, filename: str) -> pd.DataFrame:
             filename = filename.lower()
-            if 'gstr2b' in filename:
-                # GSTR2B specific column mapping
+            # Print original columns for debugging
+            print(f"\nOriginal columns in file {filename}:")
+            print(df.columns.tolist())
+            
+            # Check if this is GSTR2B data by looking for its specific columns
+            if any(col in df.columns for col in ['taxable value', 'igst', 'cgst', 'sgst', 'total invoice value']):
+                print("Detected GSTR2B file format")
                 mapping = {
-                    'invoice date': 'date',  # Changed from 'date' to 'invoice date'
+                    'invoice date': 'date',
                     'total invoice value': 'amount',
-                    'supplier gstin': 'vendor',  # Using GSTIN as vendor identifier
+                    'supplier gstin': 'vendor',
                     'invoice no': 'reference'
                 }
                 
                 # Print the columns before and after mapping for debugging
                 print(f"Before mapping - Available columns: {list(df.columns)}")
                 
-                # If we need to perform any data transformations
+                # Convert amount to numeric
                 if 'total invoice value' in df.columns:
-                    # Convert amount to numeric, removing any currency symbols and commas
-                    df['total invoice value'] = pd.to_numeric(
-                        df['total invoice value'].str.replace('₹', '').str.replace(',', ''),
-                        errors='coerce'
-                    )
+                    print("Converting Total Invoice Value to numeric")
+                    df['total invoice value'] = pd.to_numeric(df['total invoice value'], errors='coerce')
+                    print(f"Sample amounts after conversion:\n{df['total invoice value'].head()}")
                 
-                # Print the mapping being applied
                 print(f"Applying mapping: {mapping}")
-            elif 'tally' in filename:
-                # Print original columns and their types for debugging
-                print(f"Original Tally file columns and types:\n{df.dtypes}")
+            
+            # Check if this is Tally data by looking for its specific columns
+            elif any(col in df.columns for col in ['tax amount', 'total amount', 'type']):
+                print("Detected Tally file format")
+                print(f"\nOriginal columns and types:")
+                print(df.dtypes)
                 
-                # For Tally files, we need to handle the case where there might be multiple amount columns
-                if 'amount' in df.columns and pd.api.types.is_numeric_dtype(df['amount']):
-                    # If 'amount' is already numeric, we'll use it directly
-                    print("Using existing numeric 'amount' column")
-                else:
-                    # If we have both amount and tax amount, we might need to calculate the total
-                    print("Calculating total amount from available columns")
-                    amount_cols = [col for col in df.columns if 'amount' in col.lower()]
-                    print(f"Found amount columns: {amount_cols}")
-                    
-                    # Try to convert each amount column to numeric
-                    for col in amount_cols:
+                # Step 1: Convert amount columns to numeric first
+                amount_cols = ['amount', 'tax amount', 'total amount']
+                for col in amount_cols:
+                    if col in df.columns:
+                        print(f"\nProcessing {col} column:")
+                        print(f"Original values:\n{df[col].head()}")
                         try:
-                            df[col] = clean_numeric_values(df[col])
+                            df[col] = pd.to_numeric(df[col], errors='coerce')
+                            print(f"Converted values:\n{df[col].head()}")
                         except Exception as e:
-                            print(f"Warning: Could not convert column {col} to numeric: {e}")
-                    
-                    # Use the first numeric amount column we find
-                    for col in amount_cols:
-                        if pd.api.types.is_numeric_dtype(df[col]):
-                            print(f"Using column '{col}' as amount")
-                            df['amount'] = df[col]
-                            break
+                            print(f"Warning: Error converting {col}: {e}")
                 
-                # Tally specific column mapping
-                mapping = {
-                    'date': 'date',
-                    'supplier gstin': 'vendor',  # Using GSTIN as vendor identifier
-                    'invoice no': 'reference'
+                # Step 2: Calculate total amount if needed
+                if 'total amount' not in df.columns and 'amount' in df.columns and 'tax amount' in df.columns:
+                    print("\nCalculating total amount from components")
+                    df['calculated_total'] = df['amount'].fillna(0) + df['tax amount'].fillna(0)
+                    print("Sample calculated totals:")
+                    print(df[['amount', 'tax amount', 'calculated_total']].head())
+                
+                # Step 3: Determine which amount column to use for reconciliation
+                print("\nAnalyzing available amount columns:")
+                
+                amount_columns = {
+                    col: df[col].notna().sum() 
+                    for col in df.columns 
+                    if any(name in col.lower() for name in ['amount', 'value', 'total'])
                 }
                 
-                print(f"Processing Tally file columns after amount handling: {list(df.columns)}")
-                print(f"Column types after preprocessing:\n{df.dtypes}")
+                print("Found potential amount columns:")
+                for col, count in amount_columns.items():
+                    print(f"  {col}: {count} non-null values")
+                
+                # Priority order for amount columns
+                if 'total amount' in df.columns:
+                    print("\nUsing 'total amount' column (highest priority)")
+                    amount_col = 'total amount'
+                elif 'calculated_total' in df.columns:
+                    print("\nUsing calculated total (next priority)")
+                    amount_col = 'calculated_total'
+                elif 'amount' in df.columns:
+                    print("\nUsing base 'amount' column")
+                    amount_col = 'amount'
+                else:
+                    # Try to find any column that might contain amount data
+                    numeric_cols = df.select_dtypes(include=['float64', 'int64']).columns
+                    amount_like = [col for col in numeric_cols if any(name in col.lower() for name in ['amount', 'value', 'total'])]
+                    
+                    if amount_like:
+                        amount_col = amount_like[0]
+                        print(f"\nUsing best guess amount column: {amount_col}")
+                    else:
+                        raise ValueError(
+                            "Could not determine amount column. Available columns: " +
+                            ", ".join(df.columns.tolist()) +
+                            "\nPlease ensure your file has a column containing transaction amounts."
+                        )
+                
+                # Step 4: Create mapping
+                mapping = {
+                    'date': 'date',
+                    amount_col: 'amount',  # Map the selected amount column
+                    'supplier gstin': 'vendor',
+                    'invoice no': 'reference',
+                    'type': 'type'
+                }
+                
+                print("\nSelected mapping:")
+                print(mapping)
+                print("\nColumn to be used for amount:", amount_col)
+                print("Sample values from selected amount column:")
+                print(df[amount_col].head())
+                
             else:
-                # Default mapping
+                print(f"Could not determine file type. Available columns: {list(df.columns)}")
+                # Default mapping assuming basic columns are present
                 mapping = {
                     'date': 'date',
                     'amount': 'amount',
-                    'vendor': 'vendor',
+                    'vendor': 'vendor'
                 }
             
             # Print available columns for debugging
@@ -223,18 +329,48 @@ async def upload_files(
             
             # Rename columns based on mapping
             print(f"\nProcessing file: {filename}")
-            print(f"Original columns: {list(df.columns)}")
+            print(f"Original columns before mapping: {list(df.columns)}")
+            
+            # Create a copy of the DataFrame with only the columns we want to map
+            mapped_df = pd.DataFrame()
+            
+            # Track which columns were successfully mapped
+            mapped_columns = []
+            missing_columns = []
             
             for old_col, new_col in mapping.items():
                 if old_col in df.columns:
-                    df = df.rename(columns={old_col: new_col})
-                    print(f"Mapped '{old_col}' to '{new_col}'")
+                    mapped_df[new_col] = df[old_col]
+                    mapped_columns.append(f"{old_col} -> {new_col}")
                 else:
-                    print(f"Warning: Expected column '{old_col}' not found in file")
+                    missing_columns.append(old_col)
             
-            print(f"Final columns after mapping: {list(df.columns)}")
+            print(f"\nMapping summary:")
+            if mapped_columns:
+                print("Successfully mapped columns:")
+                for mapping in mapped_columns:
+                    print(f"  {mapping}")
             
-            return df
+            if missing_columns:
+                print("\nMissing columns:")
+                for col in missing_columns:
+                    print(f"  {col}")
+            
+            if mapped_df.empty or not all(col in mapped_df.columns for col in ['date', 'amount', 'vendor']):
+                required = ['date', 'amount', 'vendor']
+                missing = [col for col in required if col not in mapped_df.columns]
+                available = df.columns.tolist()
+                raise ValueError(
+                    f"Failed to map all required columns. Missing: {missing}\n"
+                    f"Available columns in original file: {available}\n"
+                    "Please ensure your file contains the necessary data columns."
+                )
+            
+            print(f"\nFinal columns after mapping: {list(mapped_df.columns)}")
+            print("\nFirst few rows of mapped data:")
+            print(mapped_df.head())
+            
+            return mapped_df
         
         # Map columns for both dataframes
         bank_df = map_columns(bank_df, bank_file.filename)
@@ -280,46 +416,45 @@ async def upload_files(
                 if pd.api.types.is_numeric_dtype(series):
                     return series
                 
+                # Print sample values for debugging
+                print("\nCleaning numeric values")
+                print("Original values (first 5):")
+                print(series.head())
+                
+                # Convert to string first to handle all cases
+                cleaned = pd.Series(series).astype(str).str.strip()
+                
+                # Handle special characters and formatting
+                for char in ['₹', '$', '€', '£', ',']:
+                    cleaned = cleaned.str.replace(char, '', regex=False)
+                
+                # Handle parentheses for negative numbers: (100) -> -100
+                cleaned = cleaned.apply(lambda x: f"-{x.strip('()')}" if '(' in str(x) and ')' in str(x) else x)
+                
+                # Remove any remaining non-numeric characters except decimal point and minus sign
+                cleaned = cleaned.str.replace(r'[^\d.-]', '', regex=True)
+                
+                print("\nCleaned values (first 5):")
+                print(cleaned.head())
+                
+                # Convert to numeric, handling invalid values
                 try:
-                    # First, try direct conversion if possible
-                    return pd.to_numeric(series, errors='raise')
-                except (TypeError, ValueError):
-                    # If direct conversion fails, try cleaning the data
-                    if isinstance(series, pd.Series):
-                        # Convert to string first to handle all cases
-                        cleaned = series.astype(str)
-                    else:
-                        # Handle case where the column might be a different type
-                        cleaned = pd.Series(series).astype(str)
+                    numeric = pd.to_numeric(cleaned, errors='coerce')
+                    print("\nConverted to numeric (first 5):")
+                    print(numeric.head())
                     
-                    # Print sample values for debugging
-                    print(f"Sample values before cleaning: {cleaned.head()}")
-                    
-                    # Remove common currency symbols and formatting
-                    currency_chars = ['₹', '$', '€', '£', ',']
-                    for char in currency_chars:
-                        cleaned = cleaned.str.replace(char, '')
-                    
-                    # Handle parentheses for negative numbers: (100) -> -100
-                    cleaned = cleaned.str.strip('()').str.strip()
-                    cleaned = cleaned.apply(lambda x: f"-{x.strip('()')}" if '(' in str(x) and ')' in str(x) else x)
-                    
-                    # Remove any remaining non-numeric characters except decimal point and minus sign
-                    cleaned = cleaned.str.replace(r'[^\d.-]', '', regex=True)
-                    
-                    # Print sample values after cleaning
-                    print(f"Sample values after cleaning: {cleaned.head()}")
-                    
-                    # Convert to numeric, setting errors='coerce' to handle invalid values
-                    numeric_values = pd.to_numeric(cleaned, errors='coerce')
-                    
-                    # Print information about any values that couldn't be converted
-                    nan_mask = numeric_values.isna()
+                    # Check for any NaN values
+                    nan_mask = numeric.isna()
                     if nan_mask.any():
-                        print(f"Warning: Could not convert {nan_mask.sum()} values to numeric")
-                        print(f"Problem values: {series[nan_mask].head()}")
+                        print(f"\nWarning: Could not convert {nan_mask.sum()} values to numeric")
+                        print("Problem values:")
+                        for orig, clean in zip(series[nan_mask].head(), cleaned[nan_mask].head()):
+                            print(f"Original: '{orig}' -> Cleaned: '{clean}'")
                     
-                    return numeric_values
+                    return numeric
+                except Exception as e:
+                    print(f"\nError converting to numeric: {str(e)}")
+                    raise
 
             def clean_date_values(series):
                 """Clean and convert a series to datetime, handling various formats."""
