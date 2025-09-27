@@ -257,44 +257,101 @@ async def upload_files(
                            f"{hint}"
                 )
             
-            # Clean and standardize date format
-            if 'date' in df.columns:
-                try:
-                    df['date'] = pd.to_datetime(df['date']).dt.date
-                except Exception as e:
-                    raise HTTPException(
-                        status_code=400,
-                        detail=f"Error processing dates in {name}: {str(e)}\n"
-                               "Please ensure dates are in a standard format (YYYY-MM-DD or DD/MM/YYYY)"
-                    )
-            
-            # Ensure amount is numeric
-            if 'amount' in df.columns:
-                try:
-                    df['amount'] = pd.to_numeric(df['amount'].astype(str)
-                                               .str.replace('₹', '')
-                                               .str.replace(',', '')
-                                               .str.strip(),
-                                               errors='coerce')
-                except Exception as e:
-                    raise HTTPException(
-                        status_code=400,
-                        detail=f"Error processing amounts in {name}: {str(e)}\n"
-                               "Please ensure amounts are numeric values"
-                    )
-            
-            # Clean vendor (GSTIN) format
-            if 'vendor' in df.columns:
-                # Remove any whitespace and convert to uppercase for consistent matching
-                df['vendor'] = df['vendor'].astype(str).str.strip().str.upper()
+            def clean_numeric_values(series):
+                """Clean and convert a series to numeric values, handling various formats."""
+                if pd.api.types.is_numeric_dtype(series):
+                    return series
                 
-                # Validate GSTIN format (basic validation)
-                invalid_gstin = df[df['vendor'].str.len() != 15]['vendor'].tolist()
-                if invalid_gstin:
-                    print(f"Warning: Found potentially invalid GSTINs in {name}: {invalid_gstin}")
-            
-            # Add source identifier
-            df['source'] = 'gstr2b' if 'gstr2b' in filename.lower() else 'tally'
+                if isinstance(series, pd.Series):
+                    # Convert to string first to handle all cases
+                    cleaned = series.astype(str)
+                else:
+                    # Handle case where the column might be a different type
+                    cleaned = pd.Series(series).astype(str)
+                
+                # Remove common currency symbols and formatting
+                currency_chars = ['₹', '$', '€', '£', ',']
+                for char in currency_chars:
+                    cleaned = cleaned.str.replace(char, '')
+                
+                # Handle parentheses for negative numbers: (100) -> -100
+                cleaned = cleaned.apply(lambda x: str(x).strip('()').strip())
+                cleaned = cleaned.apply(lambda x: f"-{x}" if x.startswith('(') and x.endswith(')') else x)
+                
+                # Convert to numeric, setting errors='coerce' to handle invalid values
+                return pd.to_numeric(cleaned, errors='coerce')
+
+            def clean_date_values(series):
+                """Clean and convert a series to datetime, handling various formats."""
+                if pd.api.types.is_datetime64_any_dtype(series):
+                    return series.dt.date
+                
+                try:
+                    # Try parsing with various formats
+                    return pd.to_datetime(series, infer_datetime_format=True).dt.date
+                except Exception as e:
+                    print(f"Warning: Date parsing failed with error: {str(e)}")
+                    # If that fails, try manual format detection
+                    sample = str(series.iloc[0]) if not series.empty else ""
+                    if '/' in sample:
+                        return pd.to_datetime(series, format='%d/%m/%Y').dt.date
+                    elif '-' in sample:
+                        return pd.to_datetime(series, format='%Y-%m-%d').dt.date
+                    else:
+                        raise ValueError(f"Unrecognized date format. Sample date: {sample}")
+
+            def clean_string_values(series):
+                """Clean string values by removing extra spaces and standardizing case."""
+                return pd.Series(series).astype(str).str.strip().str.upper()
+
+            try:
+                # Clean date values
+                if 'date' in df.columns:
+                    try:
+                        df['date'] = clean_date_values(df['date'])
+                    except Exception as e:
+                        raise HTTPException(
+                            status_code=400,
+                            detail=f"Error processing dates in {name}: {str(e)}\n"
+                                   "Please ensure dates are in a standard format (e.g., YYYY-MM-DD or DD/MM/YYYY)"
+                        )
+
+                # Clean amount values
+                if 'amount' in df.columns:
+                    try:
+                        df['amount'] = clean_numeric_values(df['amount'])
+                        # Check for any NaN values after conversion
+                        nan_count = df['amount'].isna().sum()
+                        if nan_count > 0:
+                            print(f"Warning: Found {nan_count} invalid amount values in {name}")
+                    except Exception as e:
+                        raise HTTPException(
+                            status_code=400,
+                            detail=f"Error processing amounts in {name}: {str(e)}\n"
+                                   "Please ensure amounts are valid numeric values"
+                        )
+
+                # Clean vendor values
+                if 'vendor' in df.columns:
+                    df['vendor'] = clean_string_values(df['vendor'])
+                    # Basic GSTIN validation (if applicable)
+                    if df['vendor'].str.len().eq(15).any():  # Check if we're dealing with GSTINs
+                        invalid_gstin = df[df['vendor'].str.len() != 15]['vendor'].tolist()
+                        if invalid_gstin:
+                            print(f"Warning: Found potentially invalid GSTINs in {name}: {invalid_gstin}")
+
+                # Add source identifier
+                df['source'] = 'gstr2b' if 'gstr2b' in filename.lower() else 'tally'
+
+            except Exception as e:
+                # Log the error for debugging
+                print(f"Error processing {name}: {str(e)}")
+                print(f"Column types: {df.dtypes}")
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Error processing {name}: {str(e)}\n"
+                           f"Column types: {df.dtypes}"
+                )
             
             return df
         
