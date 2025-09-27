@@ -31,34 +31,63 @@ async def startup_event():
         print(f"Warning: Could not set upload directory permissions: {e}")
 
 @app.post("/upload/")
-async def upload_file(file: UploadFile = File(...)):
+async def upload_files(
+    bank_file: UploadFile = File(..., description="Bank statement file"),
+    ledger_file: UploadFile = File(..., description="Ledger transactions file")
+):
     try:
-        # Validate file extension
-        if not file.filename.endswith(('.xls', '.xlsx')):
-            raise HTTPException(status_code=400, detail="Only Excel files (.xls, .xlsx) are allowed")
+        # Validate file extensions
+        for file in [bank_file, ledger_file]:
+            if not file.filename.endswith(('.xls', '.xlsx')):
+                raise HTTPException(
+                    status_code=400, 
+                    detail=f"File {file.filename} is not an Excel file. Only .xls and .xlsx are allowed"
+                )
         
-        # Create a unique filename to avoid conflicts
         timestamp = pd.Timestamp.now().strftime("%Y%m%d_%H%M%S")
-        safe_filename = f"{timestamp}_{file.filename}"
-        filepath = os.path.join(UPLOAD_FOLDER, safe_filename)
         
-        # Save the uploaded file with explicit permissions
-        content = await file.read()
+        # Save bank file
+        bank_filename = f"{timestamp}_bank_{bank_file.filename}"
+        ledger_filename = f"{timestamp}_ledger_{ledger_file.filename}"
+        
+        bank_filepath = os.path.join(UPLOAD_FOLDER, bank_filename)
+        ledger_filepath = os.path.join(UPLOAD_FOLDER, ledger_filename)
+        
+        # Save both files
         try:
-            with open(filepath, "wb") as f:
-                f.write(content)
-            # Set file permissions to be readable and writable
-            os.chmod(filepath, 0o666)
+            for file, filepath in [(bank_file, bank_filepath), (ledger_file, ledger_filepath)]:
+                content = await file.read()
+                with open(filepath, "wb") as f:
+                    f.write(content)
+                os.chmod(filepath, 0o666)
         except IOError as e:
-            raise HTTPException(status_code=500, detail=f"Failed to save file: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Failed to save files: {str(e)}")
         
-        # Process the file
-        df = pd.read_excel(filepath)
-        reconciled_df, unmatched_df = reconcile_transactions(df)
+        # Process both files
+        try:
+            bank_df = pd.read_excel(bank_filepath)
+            ledger_df = pd.read_excel(ledger_filepath)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Failed to read Excel files: {str(e)}")
+        
+        # Validate required columns
+        required_columns = {'date', 'amount', 'vendor'}
+        for df, name in [(bank_df, 'Bank statement'), (ledger_df, 'Ledger file')]:
+            missing = required_columns - set(df.columns)
+            if missing:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"{name} is missing required columns: {', '.join(missing)}"
+                )
+        
+        reconciled_df, unmatched_bank_df, unmatched_ledger_df = reconcile_transactions(bank_df, ledger_df)
         
         return {
             "reconciled": reconciled_df.to_dict(orient="records"),
-            "unmatched": unmatched_df.to_dict(orient="records")
+            "unmatched_bank": unmatched_bank_df.to_dict(orient="records"),
+            "unmatched_ledger": unmatched_ledger_df.to_dict(orient="records")
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        if not isinstance(e, HTTPException):
+            raise HTTPException(status_code=500, detail=str(e))
+        raise e

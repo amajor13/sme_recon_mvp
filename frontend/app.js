@@ -36,19 +36,20 @@ function updateStatus(message, isError = false) {
     statusDiv.className = 'status-section ' + (isError ? 'error' : 'success');
 }
 
-async function uploadFile() {
+async function uploadFiles() {
     try {
-        const input = document.getElementById("fileInput");
-        const file = input.files[0];
+        const bankFile = document.getElementById("bankFile").files[0];
+        const ledgerFile = document.getElementById("ledgerFile").files[0];
         
-        if (!file) {
-            throw new Error("Please select a file first");
+        if (!bankFile || !ledgerFile) {
+            throw new Error("Please select both bank statement and ledger files");
         }
 
-        updateStatus("Uploading file...");
+        updateStatus("Uploading files...");
         
         const formData = new FormData();
-        formData.append("file", file);
+        formData.append("bank_file", bankFile);
+        formData.append("ledger_file", ledgerFile);
 
         const response = await fetch("http://127.0.0.1:8000/upload/", {
             method: "POST",
@@ -61,20 +62,24 @@ async function uploadFile() {
         }
 
         const data = await response.json();
-        updateStatus("File processed successfully!");
+        updateStatus("Files processed successfully!");
 
         // Define columns for the tables
-        const columns = ['date', 'amount', 'vendor', 'description'];
+        const columns = ['date', 'amount', 'vendor', 'description', 'bank_reference', 'ledger_reference'];
 
         // Update reconciled transactions table
         const reconciledTable = document.getElementById('reconciledTable');
         reconciledTable.innerHTML = '';
         reconciledTable.appendChild(createTable(data.reconciled, columns));
 
-        // Update unmatched transactions table
+        // Update unmatched transactions tables
         const unmatchedTable = document.getElementById('unmatchedTable');
-        unmatchedTable.innerHTML = '';
-        unmatchedTable.appendChild(createTable(data.unmatched, columns));
+        unmatchedTable.innerHTML = `
+            <h3>Unmatched Bank Transactions</h3>
+            ${createTable(data.unmatched_bank, ['date', 'amount', 'vendor', 'description']).outerHTML}
+            <h3>Unmatched Ledger Transactions</h3>
+            ${createTable(data.unmatched_ledger, ['date', 'amount', 'vendor', 'description']).outerHTML}
+        `;
 
     } catch (error) {
         console.error("Upload error:", error);
