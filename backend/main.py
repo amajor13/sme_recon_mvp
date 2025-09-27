@@ -174,24 +174,42 @@ async def upload_files(
                 # Print the mapping being applied
                 print(f"Applying mapping: {mapping}")
             elif 'tally' in filename:
+                # Print original columns and their types for debugging
+                print(f"Original Tally file columns and types:\n{df.dtypes}")
+                
+                # For Tally files, we need to handle the case where there might be multiple amount columns
+                if 'amount' in df.columns and pd.api.types.is_numeric_dtype(df['amount']):
+                    # If 'amount' is already numeric, we'll use it directly
+                    print("Using existing numeric 'amount' column")
+                else:
+                    # If we have both amount and tax amount, we might need to calculate the total
+                    print("Calculating total amount from available columns")
+                    amount_cols = [col for col in df.columns if 'amount' in col.lower()]
+                    print(f"Found amount columns: {amount_cols}")
+                    
+                    # Try to convert each amount column to numeric
+                    for col in amount_cols:
+                        try:
+                            df[col] = clean_numeric_values(df[col])
+                        except Exception as e:
+                            print(f"Warning: Could not convert column {col} to numeric: {e}")
+                    
+                    # Use the first numeric amount column we find
+                    for col in amount_cols:
+                        if pd.api.types.is_numeric_dtype(df[col]):
+                            print(f"Using column '{col}' as amount")
+                            df['amount'] = df[col]
+                            break
+                
                 # Tally specific column mapping
                 mapping = {
                     'date': 'date',
-                    'total amount': 'amount',  # Using total amount instead of just amount
-                    'supplier gstin': 'vendor',  # Using GSTIN as vendor identifier for consistency
+                    'supplier gstin': 'vendor',  # Using GSTIN as vendor identifier
                     'invoice no': 'reference'
                 }
                 
-                # Print the columns before and after mapping for debugging
-                print(f"Processing Tally file columns: {list(df.columns)}")
-                
-                # If we need to perform any data transformations
-                if 'total amount' in df.columns:
-                    # Convert amount to numeric, removing any currency symbols and commas
-                    df['total amount'] = pd.to_numeric(
-                        df['total amount'].str.replace('₹', '').str.replace(',', ''),
-                        errors='coerce'
-                    )
+                print(f"Processing Tally file columns after amount handling: {list(df.columns)}")
+                print(f"Column types after preprocessing:\n{df.dtypes}")
             else:
                 # Default mapping
                 mapping = {
@@ -262,24 +280,46 @@ async def upload_files(
                 if pd.api.types.is_numeric_dtype(series):
                     return series
                 
-                if isinstance(series, pd.Series):
-                    # Convert to string first to handle all cases
-                    cleaned = series.astype(str)
-                else:
-                    # Handle case where the column might be a different type
-                    cleaned = pd.Series(series).astype(str)
-                
-                # Remove common currency symbols and formatting
-                currency_chars = ['₹', '$', '€', '£', ',']
-                for char in currency_chars:
-                    cleaned = cleaned.str.replace(char, '')
-                
-                # Handle parentheses for negative numbers: (100) -> -100
-                cleaned = cleaned.apply(lambda x: str(x).strip('()').strip())
-                cleaned = cleaned.apply(lambda x: f"-{x}" if x.startswith('(') and x.endswith(')') else x)
-                
-                # Convert to numeric, setting errors='coerce' to handle invalid values
-                return pd.to_numeric(cleaned, errors='coerce')
+                try:
+                    # First, try direct conversion if possible
+                    return pd.to_numeric(series, errors='raise')
+                except (TypeError, ValueError):
+                    # If direct conversion fails, try cleaning the data
+                    if isinstance(series, pd.Series):
+                        # Convert to string first to handle all cases
+                        cleaned = series.astype(str)
+                    else:
+                        # Handle case where the column might be a different type
+                        cleaned = pd.Series(series).astype(str)
+                    
+                    # Print sample values for debugging
+                    print(f"Sample values before cleaning: {cleaned.head()}")
+                    
+                    # Remove common currency symbols and formatting
+                    currency_chars = ['₹', '$', '€', '£', ',']
+                    for char in currency_chars:
+                        cleaned = cleaned.str.replace(char, '')
+                    
+                    # Handle parentheses for negative numbers: (100) -> -100
+                    cleaned = cleaned.str.strip('()').str.strip()
+                    cleaned = cleaned.apply(lambda x: f"-{x.strip('()')}" if '(' in str(x) and ')' in str(x) else x)
+                    
+                    # Remove any remaining non-numeric characters except decimal point and minus sign
+                    cleaned = cleaned.str.replace(r'[^\d.-]', '', regex=True)
+                    
+                    # Print sample values after cleaning
+                    print(f"Sample values after cleaning: {cleaned.head()}")
+                    
+                    # Convert to numeric, setting errors='coerce' to handle invalid values
+                    numeric_values = pd.to_numeric(cleaned, errors='coerce')
+                    
+                    # Print information about any values that couldn't be converted
+                    nan_mask = numeric_values.isna()
+                    if nan_mask.any():
+                        print(f"Warning: Could not convert {nan_mask.sum()} values to numeric")
+                        print(f"Problem values: {series[nan_mask].head()}")
+                    
+                    return numeric_values
 
             def clean_date_values(series):
                 """Clean and convert a series to datetime, handling various formats."""
