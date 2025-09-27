@@ -1,3 +1,41 @@
+function createTable(data, columns) {
+    if (!data || data.length === 0) return '<p>No data available</p>';
+
+    const table = document.createElement('table');
+    
+    // Create header
+    const thead = document.createElement('thead');
+    const headerRow = document.createElement('tr');
+    columns.forEach(column => {
+        const th = document.createElement('th');
+        th.textContent = column.charAt(0).toUpperCase() + column.slice(1);
+        headerRow.appendChild(th);
+    });
+    thead.appendChild(headerRow);
+    table.appendChild(thead);
+
+    // Create body
+    const tbody = document.createElement('tbody');
+    data.forEach(row => {
+        const tr = document.createElement('tr');
+        columns.forEach(column => {
+            const td = document.createElement('td');
+            td.textContent = row[column] || '';
+            tr.appendChild(td);
+        });
+        tbody.appendChild(tr);
+    });
+    table.appendChild(tbody);
+
+    return table;
+}
+
+function updateStatus(message, isError = false) {
+    const statusDiv = document.getElementById('status');
+    statusDiv.textContent = message;
+    statusDiv.className = 'status-section ' + (isError ? 'error' : 'success');
+}
+
 async function uploadFile() {
     try {
         const input = document.getElementById("fileInput");
@@ -7,6 +45,8 @@ async function uploadFile() {
             throw new Error("Please select a file first");
         }
 
+        updateStatus("Uploading file...");
+        
         const formData = new FormData();
         formData.append("file", file);
 
@@ -21,10 +61,23 @@ async function uploadFile() {
         }
 
         const data = await response.json();
-        document.getElementById("output").textContent = JSON.stringify(data, null, 2);
-        document.getElementById("error").textContent = ""; // Clear any previous errors
+        updateStatus("File processed successfully!");
+
+        // Define columns for the tables
+        const columns = ['date', 'amount', 'vendor', 'description'];
+
+        // Update reconciled transactions table
+        const reconciledTable = document.getElementById('reconciledTable');
+        reconciledTable.innerHTML = '';
+        reconciledTable.appendChild(createTable(data.reconciled, columns));
+
+        // Update unmatched transactions table
+        const unmatchedTable = document.getElementById('unmatchedTable');
+        unmatchedTable.innerHTML = '';
+        unmatchedTable.appendChild(createTable(data.unmatched, columns));
+
     } catch (error) {
         console.error("Upload error:", error);
-        document.getElementById("error").textContent = error.message;
+        updateStatus(error.message, true);
     }
 }
