@@ -44,14 +44,17 @@ async def upload_files(
                     detail=f"File {file.filename} is not an Excel file. Only .xls and .xlsx are allowed"
                 )
         
-        timestamp = pd.Timestamp.now().strftime("%Y%m%d_%H%M%S")
+        # Clean up old files
+        for old_file in os.listdir(UPLOAD_FOLDER):
+            if old_file != '.gitkeep':  # Keep the .gitkeep file
+                try:
+                    os.remove(os.path.join(UPLOAD_FOLDER, old_file))
+                except Exception as e:
+                    print(f"Warning: Could not remove old file {old_file}: {e}")
         
-        # Save bank file
-        bank_filename = f"{timestamp}_bank_{bank_file.filename}"
-        ledger_filename = f"{timestamp}_ledger_{ledger_file.filename}"
-        
-        bank_filepath = os.path.join(UPLOAD_FOLDER, bank_filename)
-        ledger_filepath = os.path.join(UPLOAD_FOLDER, ledger_filename)
+        # Use simple names for current files
+        bank_filepath = os.path.join(UPLOAD_FOLDER, 'bank.xlsx')
+        ledger_filepath = os.path.join(UPLOAD_FOLDER, 'ledger.xlsx')
         
         # Save both files
         try:
