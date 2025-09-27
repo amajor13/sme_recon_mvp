@@ -37,11 +37,12 @@ async def upload_files(
 ):
     try:
         # Validate file extensions
+        allowed_extensions = ('.xls', '.xlsx', '.csv')
         for file in [bank_file, ledger_file]:
-            if not file.filename.endswith(('.xls', '.xlsx')):
+            if not file.filename.lower().endswith(allowed_extensions):
                 raise HTTPException(
                     status_code=400, 
-                    detail=f"File {file.filename} is not an Excel file. Only .xls and .xlsx are allowed"
+                    detail=f"File {file.filename} has an unsupported format. Allowed formats: Excel (.xls, .xlsx) and CSV (.csv)"
                 )
         
         # Clean up old files
@@ -66,12 +67,42 @@ async def upload_files(
         except IOError as e:
             raise HTTPException(status_code=500, detail=f"Failed to save files: {str(e)}")
         
+        def read_file(filepath: str) -> pd.DataFrame:
+            """Read either Excel or CSV file into a pandas DataFrame."""
+            try:
+                if filepath.lower().endswith('.csv'):
+                    # Try different encodings and delimiters for CSV
+                    encodings = ['utf-8', 'iso-8859-1', 'cp1252']
+                    delimiters = [',', ';', '\t']
+                    
+                    for encoding in encodings:
+                        for delimiter in delimiters:
+                            try:
+                                df = pd.read_csv(filepath, encoding=encoding, sep=delimiter)
+                                # If we got here, the file was read successfully
+                                return df
+                            except Exception:
+                                continue
+                    
+                    # If we get here, none of the combinations worked
+                    raise ValueError("Could not read CSV file with any common encoding/delimiter combination")
+                else:
+                    # For Excel files
+                    return pd.read_excel(filepath)
+            except Exception as e:
+                raise HTTPException(
+                    status_code=400, 
+                    detail=f"Failed to read file {os.path.basename(filepath)}: {str(e)}"
+                )
+
         # Process both files
         try:
-            bank_df = pd.read_excel(bank_filepath)
-            ledger_df = pd.read_excel(ledger_filepath)
+            bank_df = read_file(bank_filepath)
+            ledger_df = read_file(ledger_filepath)
         except Exception as e:
-            raise HTTPException(status_code=400, detail=f"Failed to read Excel files: {str(e)}")
+            if isinstance(e, HTTPException):
+                raise e
+            raise HTTPException(status_code=400, detail=f"Failed to read files: {str(e)}")
         
         # Validate required columns
         required_columns = {'date', 'amount', 'vendor'}
