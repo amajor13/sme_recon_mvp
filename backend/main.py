@@ -152,13 +152,21 @@ async def upload_files(
         def map_columns(df: pd.DataFrame, filename: str) -> pd.DataFrame:
             filename = filename.lower()
             if 'gstr2b' in filename:
-                # Add your GSTR2B column mapping here
+                # GSTR2B specific column mapping
                 mapping = {
-                    'invoice date': 'date',
-                    'invoice value': 'amount',
-                    'trade/legal name': 'vendor',
-                    # Add more mappings as needed
+                    'date': 'date',
+                    'total invoice value': 'amount',
+                    'supplier gstin': 'vendor',  # Using GSTIN as vendor identifier
+                    'invoice no': 'reference'
                 }
+                
+                # If we need to perform any data transformations
+                if 'total invoice value' in df.columns:
+                    # Convert amount to numeric, removing any currency symbols or commas
+                    df['total invoice value'] = pd.to_numeric(
+                        df['total invoice value'].str.replace('₹', '').str.replace(',', ''),
+                        errors='coerce'
+                    )
             elif 'tally' in filename:
                 # Add your Tally column mapping here
                 mapping = {
@@ -189,22 +197,68 @@ async def upload_files(
         bank_df = map_columns(bank_df, bank_file.filename)
         ledger_df = map_columns(ledger_df, ledger_file.filename)
         
-        # Validate required columns
-        required_columns = {'date', 'amount', 'vendor'}
-        for df, name, filename in [
-            (bank_df, 'Bank statement', bank_file.filename),
-            (ledger_df, 'Ledger file', ledger_file.filename)
-        ]:
+        # Validate and prepare dataframes
+        def validate_and_prepare_df(df: pd.DataFrame, name: str, filename: str) -> pd.DataFrame:
+            """Validate and prepare dataframe for reconciliation."""
+            required_columns = {'date', 'amount', 'vendor'}
+            
+            # Check for required columns after mapping
             missing = required_columns - set(df.columns)
             if missing:
-                # Get the actual columns for better error message
+                # Get the actual columns for error message
                 actual_columns = set(df.columns)
+                
+                # Provide specific guidance based on file type
+                if 'gstr2b' in filename.lower():
+                    hint = ("\nGSTR2B Guidance:\n"
+                           "- 'date' from the 'date' column\n"
+                           "- 'amount' from 'total invoice value'\n"
+                           "- 'vendor' from 'supplier gstin'\n")
+                elif 'tally' in filename.lower():
+                    hint = ("\nTally File Guidance:\n"
+                           "- Check if column names match: 'date', 'amount', 'party name'\n"
+                           "- Ensure no extra spaces in column names\n")
+                else:
+                    hint = "\nRequired column format: 'date', 'amount', 'vendor'"
+                
                 raise HTTPException(
                     status_code=400,
                     detail=f"{name} ({filename}) is missing required columns: {', '.join(missing)}.\n"
-                           f"Found columns: {', '.join(actual_columns)}\n"
-                           f"Please ensure your file contains the required columns or check the column names."
+                           f"Found columns: {', '.join(sorted(actual_columns))}\n"
+                           f"{hint}"
                 )
+            
+            # Clean and standardize date format
+            if 'date' in df.columns:
+                try:
+                    df['date'] = pd.to_datetime(df['date']).dt.date
+                except Exception as e:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Error processing dates in {name}: {str(e)}\n"
+                               "Please ensure dates are in a standard format (YYYY-MM-DD or DD/MM/YYYY)"
+                    )
+            
+            # Ensure amount is numeric
+            if 'amount' in df.columns:
+                try:
+                    df['amount'] = pd.to_numeric(df['amount'].astype(str)
+                                               .str.replace('₹', '')
+                                               .str.replace(',', '')
+                                               .str.strip(),
+                                               errors='coerce')
+                except Exception as e:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Error processing amounts in {name}: {str(e)}\n"
+                               "Please ensure amounts are numeric values"
+                    )
+            
+            return df
+        
+        # Validate and prepare both dataframes
+        bank_df = validate_and_prepare_df(bank_df, "Bank statement", bank_file.filename)
+        ledger_df = validate_and_prepare_df(ledger_df, "Ledger file", ledger_file.filename)
         
         reconciled_df, unmatched_bank_df, unmatched_ledger_df = reconcile_transactions(bank_df, ledger_df)
         
