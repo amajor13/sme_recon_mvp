@@ -174,13 +174,24 @@ async def upload_files(
                 # Print the mapping being applied
                 print(f"Applying mapping: {mapping}")
             elif 'tally' in filename:
-                # Add your Tally column mapping here
+                # Tally specific column mapping
                 mapping = {
                     'date': 'date',
-                    'amount': 'amount',
-                    'party name': 'vendor',
-                    # Add more mappings as needed
+                    'total amount': 'amount',  # Using total amount instead of just amount
+                    'supplier gstin': 'vendor',  # Using GSTIN as vendor identifier for consistency
+                    'invoice no': 'reference'
                 }
+                
+                # Print the columns before and after mapping for debugging
+                print(f"Processing Tally file columns: {list(df.columns)}")
+                
+                # If we need to perform any data transformations
+                if 'total amount' in df.columns:
+                    # Convert amount to numeric, removing any currency symbols and commas
+                    df['total amount'] = pd.to_numeric(
+                        df['total amount'].str.replace('₹', '').str.replace(',', ''),
+                        errors='coerce'
+                    )
             else:
                 # Default mapping
                 mapping = {
@@ -231,8 +242,11 @@ async def upload_files(
                            f"\nCurrent columns found: {', '.join(sorted(actual_columns))}")
                 elif 'tally' in filename.lower():
                     hint = ("\nTally File Guidance:\n"
-                           "- Check if column names match: 'date', 'amount', 'party name'\n"
-                           "- Ensure no extra spaces in column names\n")
+                           "- 'date' should come from 'date' column\n"
+                           "- 'amount' should come from 'total amount' column\n"
+                           "- 'vendor' should come from 'supplier gstin' column\n"
+                           f"\nCurrent columns found: {', '.join(sorted(actual_columns))}\n"
+                           "Note: Using GSTIN as vendor identifier for consistency with GSTR2B")
                 else:
                     hint = "\nRequired column format: 'date', 'amount', 'vendor'"
                 
@@ -268,6 +282,19 @@ async def upload_files(
                         detail=f"Error processing amounts in {name}: {str(e)}\n"
                                "Please ensure amounts are numeric values"
                     )
+            
+            # Clean vendor (GSTIN) format
+            if 'vendor' in df.columns:
+                # Remove any whitespace and convert to uppercase for consistent matching
+                df['vendor'] = df['vendor'].astype(str).str.strip().str.upper()
+                
+                # Validate GSTIN format (basic validation)
+                invalid_gstin = df[df['vendor'].str.len() != 15]['vendor'].tolist()
+                if invalid_gstin:
+                    print(f"Warning: Found potentially invalid GSTINs in {name}: {invalid_gstin}")
+            
+            # Add source identifier
+            df['source'] = 'gstr2b' if 'gstr2b' in filename.lower() else 'tally'
             
             return df
         
