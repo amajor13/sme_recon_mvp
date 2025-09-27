@@ -53,9 +53,13 @@ async def upload_files(
                 except Exception as e:
                     print(f"Warning: Could not remove old file {old_file}: {e}")
         
-        # Use simple names for current files
-        bank_filepath = os.path.join(UPLOAD_FOLDER, 'bank.xlsx')
-        ledger_filepath = os.path.join(UPLOAD_FOLDER, 'ledger.xlsx')
+        # Get file extensions from original files
+        bank_ext = os.path.splitext(bank_file.filename)[1].lower()
+        ledger_ext = os.path.splitext(ledger_file.filename)[1].lower()
+        
+        # Use simple names but preserve original extensions
+        bank_filepath = os.path.join(UPLOAD_FOLDER, f'bank{bank_ext}')
+        ledger_filepath = os.path.join(UPLOAD_FOLDER, f'ledger{ledger_ext}')
         
         # Save both files
         try:
@@ -67,32 +71,72 @@ async def upload_files(
         except IOError as e:
             raise HTTPException(status_code=500, detail=f"Failed to save files: {str(e)}")
         
-        def read_file(filepath: str) -> pd.DataFrame:
+        def read_file(filepath: str, file_type: str = None) -> pd.DataFrame:
             """Read either Excel or CSV file into a pandas DataFrame."""
             try:
+                filename = os.path.basename(filepath).lower()
                 if filepath.lower().endswith('.csv'):
-                    # Try different encodings and delimiters for CSV
-                    encodings = ['utf-8', 'iso-8859-1', 'cp1252']
-                    delimiters = [',', ';', '\t']
+                    # Default CSV reading parameters
+                    params = {
+                        'encoding': 'utf-8',
+                        'sep': ',',
+                        'dtype': str  # Read all columns as string initially
+                    }
                     
-                    for encoding in encodings:
-                        for delimiter in delimiters:
-                            try:
-                                df = pd.read_csv(filepath, encoding=encoding, sep=delimiter)
-                                # If we got here, the file was read successfully
-                                return df
-                            except Exception:
-                                continue
+                    # Special handling for specific file types
+                    if 'gstr2b' in filename:
+                        params.update({
+                            'encoding': 'utf-8',
+                            'sep': ',',
+                            'skiprows': 0  # Adjust if there are header rows to skip
+                        })
+                    elif 'tally' in filename:
+                        params.update({
+                            'encoding': 'utf-8',
+                            'sep': ',',
+                            'skiprows': 0  # Adjust if there are header rows to skip
+                        })
                     
-                    # If we get here, none of the combinations worked
-                    raise ValueError("Could not read CSV file with any common encoding/delimiter combination")
+                    try:
+                        # First attempt with specified parameters
+                        df = pd.read_csv(filepath, **params)
+                    except Exception as csv_err:
+                        print(f"Initial CSV read failed: {csv_err}")
+                        # Fallback to trying different encodings and delimiters
+                        encodings = ['utf-8', 'iso-8859-1', 'cp1252']
+                        delimiters = [',', ';', '\t']
+                        success = False
+                        
+                        for encoding in encodings:
+                            for delimiter in delimiters:
+                                try:
+                                    df = pd.read_csv(filepath, encoding=encoding, sep=delimiter)
+                                    print(f"Successfully read with encoding: {encoding}, delimiter: {delimiter}")
+                                    success = True
+                                    break
+                                except Exception:
+                                    continue
+                            if success:
+                                break
+                        
+                        if not success:
+                            raise ValueError("Could not read CSV file with any common encoding/delimiter combination")
                 else:
                     # For Excel files
-                    return pd.read_excel(filepath)
+                    df = pd.read_excel(filepath)
+                
+                # Clean up column names
+                df.columns = df.columns.str.strip().str.lower()
+                
+                # Print column names for debugging
+                print(f"Columns found in {filename}: {list(df.columns)}")
+                
+                return df
+                
             except Exception as e:
                 raise HTTPException(
                     status_code=400, 
-                    detail=f"Failed to read file {os.path.basename(filepath)}: {str(e)}"
+                    detail=f"Failed to read file {os.path.basename(filepath)}: {str(e)}\nPlease ensure the file is properly formatted and contains the required columns."
                 )
 
         # Process both files
@@ -104,14 +148,62 @@ async def upload_files(
                 raise e
             raise HTTPException(status_code=400, detail=f"Failed to read files: {str(e)}")
         
+        # Column mapping for different file types
+        def map_columns(df: pd.DataFrame, filename: str) -> pd.DataFrame:
+            filename = filename.lower()
+            if 'gstr2b' in filename:
+                # Add your GSTR2B column mapping here
+                mapping = {
+                    'invoice date': 'date',
+                    'invoice value': 'amount',
+                    'trade/legal name': 'vendor',
+                    # Add more mappings as needed
+                }
+            elif 'tally' in filename:
+                # Add your Tally column mapping here
+                mapping = {
+                    'date': 'date',
+                    'amount': 'amount',
+                    'party name': 'vendor',
+                    # Add more mappings as needed
+                }
+            else:
+                # Default mapping
+                mapping = {
+                    'date': 'date',
+                    'amount': 'amount',
+                    'vendor': 'vendor',
+                }
+            
+            # Print available columns for debugging
+            print(f"Available columns in {filename}: {list(df.columns)}")
+            
+            # Rename columns based on mapping
+            for old_col, new_col in mapping.items():
+                if old_col in df.columns:
+                    df = df.rename(columns={old_col: new_col})
+            
+            return df
+        
+        # Map columns for both dataframes
+        bank_df = map_columns(bank_df, bank_file.filename)
+        ledger_df = map_columns(ledger_df, ledger_file.filename)
+        
         # Validate required columns
         required_columns = {'date', 'amount', 'vendor'}
-        for df, name in [(bank_df, 'Bank statement'), (ledger_df, 'Ledger file')]:
+        for df, name, filename in [
+            (bank_df, 'Bank statement', bank_file.filename),
+            (ledger_df, 'Ledger file', ledger_file.filename)
+        ]:
             missing = required_columns - set(df.columns)
             if missing:
+                # Get the actual columns for better error message
+                actual_columns = set(df.columns)
                 raise HTTPException(
                     status_code=400,
-                    detail=f"{name} is missing required columns: {', '.join(missing)}"
+                    detail=f"{name} ({filename}) is missing required columns: {', '.join(missing)}.\n"
+                           f"Found columns: {', '.join(actual_columns)}\n"
+                           f"Please ensure your file contains the required columns or check the column names."
                 )
         
         reconciled_df, unmatched_bank_df, unmatched_ledger_df = reconcile_transactions(bank_df, ledger_df)
