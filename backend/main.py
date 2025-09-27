@@ -154,19 +154,25 @@ async def upload_files(
             if 'gstr2b' in filename:
                 # GSTR2B specific column mapping
                 mapping = {
-                    'date': 'date',
+                    'invoice date': 'date',  # Changed from 'date' to 'invoice date'
                     'total invoice value': 'amount',
                     'supplier gstin': 'vendor',  # Using GSTIN as vendor identifier
                     'invoice no': 'reference'
                 }
                 
+                # Print the columns before and after mapping for debugging
+                print(f"Before mapping - Available columns: {list(df.columns)}")
+                
                 # If we need to perform any data transformations
                 if 'total invoice value' in df.columns:
-                    # Convert amount to numeric, removing any currency symbols or commas
+                    # Convert amount to numeric, removing any currency symbols and commas
                     df['total invoice value'] = pd.to_numeric(
                         df['total invoice value'].str.replace('₹', '').str.replace(',', ''),
                         errors='coerce'
                     )
+                
+                # Print the mapping being applied
+                print(f"Applying mapping: {mapping}")
             elif 'tally' in filename:
                 # Add your Tally column mapping here
                 mapping = {
@@ -187,9 +193,17 @@ async def upload_files(
             print(f"Available columns in {filename}: {list(df.columns)}")
             
             # Rename columns based on mapping
+            print(f"\nProcessing file: {filename}")
+            print(f"Original columns: {list(df.columns)}")
+            
             for old_col, new_col in mapping.items():
                 if old_col in df.columns:
                     df = df.rename(columns={old_col: new_col})
+                    print(f"Mapped '{old_col}' to '{new_col}'")
+                else:
+                    print(f"Warning: Expected column '{old_col}' not found in file")
+            
+            print(f"Final columns after mapping: {list(df.columns)}")
             
             return df
         
@@ -211,9 +225,10 @@ async def upload_files(
                 # Provide specific guidance based on file type
                 if 'gstr2b' in filename.lower():
                     hint = ("\nGSTR2B Guidance:\n"
-                           "- 'date' from the 'date' column\n"
-                           "- 'amount' from 'total invoice value'\n"
-                           "- 'vendor' from 'supplier gstin'\n")
+                           "- 'date' should come from 'invoice date' column\n"
+                           "- 'amount' should come from 'total invoice value' column\n"
+                           "- 'vendor' should come from 'supplier gstin' column\n"
+                           f"\nCurrent columns found: {', '.join(sorted(actual_columns))}")
                 elif 'tally' in filename.lower():
                     hint = ("\nTally File Guidance:\n"
                            "- Check if column names match: 'date', 'amount', 'party name'\n"
