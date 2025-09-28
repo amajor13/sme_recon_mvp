@@ -90,7 +90,27 @@ def clean_date_values(series):
 
 def clean_string_values(series):
     """Clean string values by removing extra spaces and standardizing case."""
-    return series.astype(str).str.strip().str.upper()
+    # Convert to string, handle encoding issues, strip whitespace, and convert to uppercase
+    def clean_single_string(val):
+        if pd.isna(val):
+            return ""
+        
+        try:
+            # Convert to string
+            val_str = str(val).strip()
+            
+            # Handle common encoding issues
+            val_str = val_str.replace('â,', '').replace('â', '')
+            
+            # Remove any non-printable characters except alphanumeric and common symbols
+            import re
+            val_str = re.sub(r'[^\w\s\-\.,/()&@#]', '', val_str)
+            
+            return val_str.upper()
+        except Exception:
+            return ""
+    
+    return series.apply(clean_single_string)
 
 def read_and_process_file(filepath: str, file_type: str) -> pd.DataFrame:
     """Read and process uploaded file."""
@@ -100,17 +120,22 @@ def read_and_process_file(filepath: str, file_type: str) -> pd.DataFrame:
         # Read file based on extension
         if filepath.lower().endswith('.csv'):
             # Try different encodings and delimiters for CSV files
-            encodings = ['utf-8', 'iso-8859-1', 'cp1252']
+            encodings = ['utf-8-sig', 'utf-8', 'iso-8859-1', 'cp1252', 'latin1']
             delimiters = [',', ';', '\t']
             
             df = None
+            used_encoding = None
+            used_delimiter = None
             for encoding in encodings:
                 for delimiter in delimiters:
                     try:
-                        df = pd.read_csv(filepath, encoding=encoding, sep=delimiter)
+                        df = pd.read_csv(filepath, encoding=encoding, sep=delimiter, dtype=str)
+                        used_encoding = encoding
+                        used_delimiter = delimiter
                         print(f"Successfully read CSV with encoding: {encoding}, delimiter: {delimiter}")
                         break
-                    except Exception:
+                    except Exception as e:
+                        print(f"Failed with encoding {encoding}, delimiter '{delimiter}': {e}")
                         continue
                 if df is not None:
                     break
@@ -119,7 +144,7 @@ def read_and_process_file(filepath: str, file_type: str) -> pd.DataFrame:
                 raise ValueError("Could not read CSV file with any common encoding/delimiter combination")
         else:
             # For Excel files
-            df = pd.read_excel(filepath)
+            df = pd.read_excel(filepath, dtype=str)
         
         if df.empty:
             raise ValueError("File appears to be empty")
@@ -129,6 +154,9 @@ def read_and_process_file(filepath: str, file_type: str) -> pd.DataFrame:
         
         # Clean up column names
         df.columns = df.columns.str.strip().str.lower()
+        
+        # Print original columns for debugging
+        print(f"Original columns: {list(df.columns)}")
         
         # Standardize column names based on file type
         if 'gstr2b' in file_type.lower():
@@ -145,6 +173,11 @@ def read_and_process_file(filepath: str, file_type: str) -> pd.DataFrame:
                 'cgst': 'cgst', 
                 'sgst': 'sgst'
             }
+            
+            # Keep original GSTIN field separate from vendor for proper display
+            if 'supplier gstin' in df.columns:
+                df['original_gstin'] = df['supplier gstin'].astype(str).str.strip()
+            
         else:
             # Tally file processing - use Total Amount for comparison
             column_mapping = {
@@ -157,11 +190,19 @@ def read_and_process_file(filepath: str, file_type: str) -> pd.DataFrame:
                 'invoice no': 'reference',
                 'invoice number': 'reference'
             }
+            
+            # Keep original GSTIN field separate from vendor for proper display
+            if 'supplier gstin' in df.columns:
+                df['original_gstin'] = df['supplier gstin'].astype(str).str.strip()
+            elif 'vendor' in df.columns:
+                df['original_gstin'] = df['vendor'].astype(str).str.strip()
         
         # Apply column mapping
         for old_col, new_col in column_mapping.items():
             if old_col in df.columns and new_col not in df.columns:
                 df = df.rename(columns={old_col: new_col})
+        
+        print(f"Columns after mapping: {list(df.columns)}")
         
         # Ensure we have required columns
         required_cols = ['date', 'amount', 'vendor']
@@ -179,6 +220,18 @@ def read_and_process_file(filepath: str, file_type: str) -> pd.DataFrame:
             df['reference'] = clean_string_values(df['reference'])
         else:
             df['reference'] = ""
+            
+        # Ensure original_gstin is clean if it exists
+        if 'original_gstin' in df.columns:
+            df['original_gstin'] = df['original_gstin'].astype(str).str.strip()
+            # Clean encoding issues but preserve valid GSTIN characters (alphanumeric)
+            df['original_gstin'] = df['original_gstin'].str.replace(r'â,?\'?0\.00', '', regex=True)
+            df['original_gstin'] = df['original_gstin'].str.replace(r'[^\w]', '', regex=True)
+            print(f"Cleaned GSTIN sample: {df['original_gstin'].head().tolist()}")
+        
+        # Debug: Print sample data
+        print(f"Sample processed data after cleaning:")
+        print(df[['reference', 'vendor', 'original_gstin' if 'original_gstin' in df.columns else 'vendor']].head() if len(df) > 0 else "No data")
         
         # Remove rows with invalid data
         df = df.dropna(subset=['date', 'amount'])
@@ -491,12 +544,17 @@ async def upload_files(
             primary_date = gstr2b_date_str if gstr2b_date_str else tally_date_str
             primary_amount = gstr2b_amount if gstr2b_amount != 0 else tally_amount
             
+            # Get proper GSTIN values for display
+            gstr2b_gstin = safe_str(gstr2b_data.get('original_gstin', gstr2b_data['vendor']))
+            tally_gstin = safe_str(tally_data.get('original_gstin', tally_data['vendor']))
+            primary_gstin = gstr2b_gstin if gstr2b_gstin else tally_gstin
+            
             reconciled_transactions.append({
                 # Primary reconciliation fields
                 'match_score': round(match['match_score'], 3),
                 'date': primary_date,
                 'amount': primary_amount,
-                'vendor': safe_str(gstr2b_data['vendor']) or safe_str(tally_data['vendor']),
+                'vendor': primary_gstin,  # Use GSTIN as vendor name since no separate vendor field exists
                 'invoice_no': safe_str(gstr2b_data.get('reference', '')) or safe_str(tally_data.get('reference', '')),
                 'gstr2b_reference': safe_str(gstr2b_data.get('reference', '')),  # Add this for old table compatibility
                 'tally_reference': safe_str(tally_data.get('reference', '')),    # Add this for old table compatibility
@@ -506,7 +564,7 @@ async def upload_files(
                 # GSTR2B specific fields
                 'gstr2b_date': gstr2b_date_str,
                 'gstr2b_invoice_no': safe_str(gstr2b_data.get('reference', '')),
-                'gstr2b_supplier_gstin': safe_str(gstr2b_data['vendor']),
+                'gstr2b_supplier_gstin': gstr2b_gstin,
                 'gstr2b_total_amount': gstr2b_amount,
                 'gstr2b_taxable_value': safe_float(gstr2b_data.get('taxable_amount', 0)),
                 'gstr2b_igst': safe_float(gstr2b_data.get('igst', 0)),
@@ -516,7 +574,7 @@ async def upload_files(
                 # Tally specific fields
                 'tally_date': tally_date_str,
                 'tally_invoice_no': safe_str(tally_data.get('reference', '')),
-                'tally_supplier_gstin': safe_str(tally_data['vendor']),
+                'tally_supplier_gstin': tally_gstin,
                 'tally_total_amount': tally_amount,
                 'tally_base_amount': safe_float(tally_data.get('base_amount', 0)),
                 'tally_tax_amount': safe_float(tally_data.get('tax amount', 0)),
@@ -550,13 +608,14 @@ async def upload_files(
         
         unmatched_bank = []
         for record in reconciliation_results['unmatched_gstr2b']:
+            gstin_value = safe_str(record.get('original_gstin', record['vendor']))
             unmatched_bank.append({
                 'date': safe_date(record['date']),
                 'amount': safe_float(record['amount']),  # Add for old table compatibility
-                'vendor': safe_str(record['vendor']),   # Add for old table compatibility
+                'vendor': gstin_value,   # Use GSTIN as vendor name since no separate vendor field exists
                 'reference': safe_str(record.get('reference', '')),  # Add for old table compatibility
                 'invoice_no': safe_str(record.get('reference', '')),
-                'supplier_gstin': safe_str(record['vendor']),
+                'supplier_gstin': gstin_value,
                 'total_amount': safe_float(record['amount']),
                 'taxable_value': safe_float(record.get('taxable_amount', 0)),
                 'igst': safe_float(record.get('igst', 0)),
@@ -567,13 +626,14 @@ async def upload_files(
         
         unmatched_ledger = []
         for record in reconciliation_results['unmatched_tally']:
+            gstin_value = safe_str(record.get('original_gstin', record['vendor']))
             unmatched_ledger.append({
                 'date': safe_date(record['date']),
                 'amount': safe_float(record['amount']),  # Add for old table compatibility
-                'vendor': safe_str(record['vendor']),   # Add for old table compatibility
+                'vendor': gstin_value,   # Use GSTIN as vendor name since no separate vendor field exists
                 'reference': safe_str(record.get('reference', '')),  # Add for old table compatibility
                 'invoice_no': safe_str(record.get('reference', '')),
-                'supplier_gstin': safe_str(record['vendor']),
+                'supplier_gstin': gstin_value,
                 'total_amount': safe_float(record['amount']),
                 'base_amount': safe_float(record.get('base_amount', 0)),
                 'tax_amount': safe_float(record.get('tax amount', 0)),
@@ -596,6 +656,18 @@ async def upload_files(
         }
         
         print(f"\nReturning response with {len(reconciled_transactions)} matches")
+        
+        # Debug: Print sample of what we're sending to frontend
+        if len(unmatched_bank) > 0:
+            print(f"Sample unmatched GSTR2B being sent to frontend:")
+            print(f"  supplier_gstin: {unmatched_bank[0].get('supplier_gstin', 'NOT_FOUND')}")
+            print(f"  vendor: {unmatched_bank[0].get('vendor', 'NOT_FOUND')}")
+            
+        if len(reconciled_transactions) > 0:
+            print(f"Sample reconciled transaction being sent to frontend:")
+            print(f"  gstr2b_supplier_gstin: {reconciled_transactions[0].get('gstr2b_supplier_gstin', 'NOT_FOUND')}")
+            print(f"  vendor: {reconciled_transactions[0].get('vendor', 'NOT_FOUND')}")
+        
         return response
         
     except HTTPException:

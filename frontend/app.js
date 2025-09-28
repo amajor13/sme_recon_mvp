@@ -304,7 +304,9 @@ function createUnmatchedTable(data, source) {
         columns.forEach(column => {
             const td = document.createElement('td');
             
-            if (column.includes('amount') || column.includes('gst')) {
+            // Only format currency for actual amount and GST amount fields, not GSTIN
+            if (column.includes('amount') || 
+                (column.includes('gst') && !column.includes('gstin'))) {
                 td.textContent = formatCurrency(row[column]);
             } else if (column === 'date') {
                 td.textContent = formatDate(row[column]);
