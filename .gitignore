@@ -40,3 +40,25 @@ uploads/*
 
 # Environment variables
 .env
+
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# React build output
+dist/
+build/
+
+# Package lock files (keep package.json but ignore lock files for now)
+package-lock.json
+
+# Temporary files
+.cache/
+.parcel-cache/
+.next/
+
+# OS files
+.DS_Store
+Thumbs.db

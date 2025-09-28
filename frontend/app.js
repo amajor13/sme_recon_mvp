@@ -1,7 +1,13 @@
 function getConfidenceClass(score) {
-    if (score >= 0.95) return 'high-confidence';    // Perfect/near-perfect matches
-    if (score >= 0.85) return 'medium-confidence';  // Good matches  
-    return 'low-confidence';                        // Possible matches
+    if (score >= 0.95) return 'confidence-high';    // Perfect/near-perfect matches
+    if (score >= 0.85) return 'confidence-medium';  // Good matches  
+    return 'confidence-low';                        // Possible matches
+}
+
+function getConfidenceBadge(score) {
+    const percentage = (score * 100).toFixed(1);
+    const className = getConfidenceClass(score);
+    return `<span class="confidence-badge ${className}">${percentage}%</span>`;
 }
 
 function formatCurrency(amount) {
@@ -38,25 +44,68 @@ function formatDate(dateStr) {
 function createMetricsPanel(metrics) {
     const metricsPanel = document.getElementById('metricsPanel');
     metricsPanel.innerHTML = '';
+    
+    // Show the metrics section
+    document.getElementById('metricsSection').style.display = 'block';
 
     const metricCards = [
-        { label: 'Total Matches', value: metrics.total_matches },
-        { label: 'High Confidence', value: metrics.high_confidence },
-        { label: 'Medium Confidence', value: metrics.medium_confidence },
-        { label: 'Low Confidence', value: metrics.low_confidence },
-        { label: 'Average Score', value: metrics.average_score.toFixed(2) },
-        { label: 'Match Rate', value: `${((metrics.total_matches / (metrics.total_matches + metrics.unmatched_total)) * 100).toFixed(1)}%` }
+        { 
+            label: 'Total Matches', 
+            value: metrics.total_matches,
+            icon: 'check-circle-2',
+            type: 'success'
+        },
+        { 
+            label: 'High Confidence', 
+            value: metrics.high_confidence,
+            icon: 'thumbs-up',
+            type: 'success'
+        },
+        { 
+            label: 'Medium Confidence', 
+            value: metrics.medium_confidence,
+            icon: 'minus-circle',
+            type: 'warning'
+        },
+        { 
+            label: 'Low Confidence', 
+            value: metrics.low_confidence,
+            icon: 'alert-triangle',
+            type: 'error'
+        },
+        { 
+            label: 'Average Score', 
+            value: `${(metrics.average_score * 100).toFixed(1)}%`,
+            icon: 'target',
+            type: 'info'
+        },
+        { 
+            label: 'Match Rate', 
+            value: `${((metrics.total_matches / (metrics.total_matches + metrics.unmatched_total)) * 100).toFixed(1)}%`,
+            icon: 'percent',
+            type: 'info'
+        }
     ];
 
     metricCards.forEach(metric => {
         const card = document.createElement('div');
-        card.className = 'metric-card';
+        card.className = `metric-card ${metric.type}`;
         card.innerHTML = `
-            <div class="metric-value">${metric.value}</div>
-            <div class="metric-label">${metric.label}</div>
+            <div class="flex items-center justify-between">
+                <div>
+                    <p class="text-sm opacity-90">${metric.label}</p>
+                    <p class="text-3xl font-bold">${metric.value}</p>
+                </div>
+                <div class="p-3 bg-white bg-opacity-20 rounded-lg">
+                    <i data-lucide="${metric.icon}" class="w-6 h-6"></i>
+                </div>
+            </div>
         `;
         metricsPanel.appendChild(card);
     });
+    
+    // Re-initialize icons for the new cards
+    lucide.createIcons();
 }
 
 function createDuplicatesPanel(duplicates) {
@@ -98,15 +147,26 @@ function createDuplicatesPanel(duplicates) {
 function createReconciledTable(data) {
     const container = document.createElement('div');
     
+    // Show the reconciled section
+    document.getElementById('reconciledSection').style.display = 'block';
+    
     if (!data || data.length === 0) {
-        const p = document.createElement('p');
-        p.textContent = 'No reconciled transactions available';
-        container.appendChild(p);
+        const emptyState = document.createElement('div');
+        emptyState.className = 'text-center py-12';
+        emptyState.innerHTML = `
+            <div class="mx-auto h-12 w-12 text-gray-400 mb-4">
+                <i data-lucide="file-x" class="w-12 h-12"></i>
+            </div>
+            <h3 class="text-lg font-medium text-gray-900 mb-2">No reconciled transactions</h3>
+            <p class="text-gray-500">Upload files to see reconciled data here.</p>
+        `;
+        container.appendChild(emptyState);
+        lucide.createIcons();
         return container;
     }
 
     const table = document.createElement('table');
-    table.className = 'reconciled-table';
+    table.className = 'modern-table';
     
     // Create header with grouped columns
     const thead = document.createElement('thead');
@@ -266,14 +326,26 @@ function createReconciledTable(data) {
 function createUnmatchedTable(data, source) {
     const container = document.createElement('div');
     
+    // Show the unmatched section
+    document.getElementById('unmatchedSection').style.display = 'block';
+    
     if (!data || data.length === 0) {
-        const p = document.createElement('p');
-        p.textContent = `No unmatched ${source} transactions`;
-        container.appendChild(p);
+        const emptyState = document.createElement('div');
+        emptyState.className = 'text-center py-8';
+        emptyState.innerHTML = `
+            <div class="mx-auto h-12 w-12 text-green-400 mb-4">
+                <i data-lucide="check-circle" class="w-12 h-12"></i>
+            </div>
+            <h3 class="text-lg font-medium text-gray-900 mb-2">No unmatched ${source} transactions</h3>
+            <p class="text-gray-500">All ${source} transactions were successfully matched!</p>
+        `;
+        container.appendChild(emptyState);
+        lucide.createIcons();
         return container;
     }
 
     const table = document.createElement('table');
+    table.className = 'modern-table';
     
     // Create header
     const thead = document.createElement('thead');
@@ -411,10 +483,32 @@ function exportAllUnmatched() {
     updateStatus('All unmatched data exported successfully!');
 }
 
-function updateStatus(message, isError = false) {
+function updateStatus(message, type = 'success') {
     const statusDiv = document.getElementById('status');
-    statusDiv.textContent = message;
-    statusDiv.className = 'status-section ' + (isError ? 'error' : 'success');
+    
+    let iconName, statusClass;
+    switch(type) {
+        case 'error':
+            iconName = 'alert-circle';
+            statusClass = 'status-error';
+            break;
+        case 'info':
+            iconName = 'info';
+            statusClass = 'status-info';
+            break;
+        default:
+            iconName = 'check-circle';
+            statusClass = 'status-success';
+    }
+    
+    statusDiv.innerHTML = `
+        <div class="${statusClass}">
+            <i data-lucide="${iconName}" class="w-5 h-5 mr-3 flex-shrink-0"></i>
+            <span>${message}</span>
+        </div>
+    `;
+    
+    lucide.createIcons();
 }
 
 async function uploadFiles() {
@@ -426,7 +520,19 @@ async function uploadFiles() {
             throw new Error("Please select both GSTR2B and Tally files");
         }
 
-        updateStatus("Uploading files...");
+        // Show loading overlay
+        document.getElementById('loadingOverlay').style.display = 'flex';
+        document.getElementById('loadingMessage').textContent = 'Uploading and processing files...';
+        
+        // Disable the button
+        const btn = document.getElementById('reconcileBtn');
+        btn.disabled = true;
+        btn.innerHTML = `
+            <div class="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+            <span>Processing...</span>
+        `;
+
+        updateStatus("Processing files...", "info");
         
         const formData = new FormData();
         formData.append("bank_file", gstr2bFile);  // Keep this name for backend compatibility
@@ -443,7 +549,20 @@ async function uploadFiles() {
         }
 
         const data = await response.json();
-        updateStatus("Files processed successfully!");
+        
+        // Hide loading overlay
+        document.getElementById('loadingOverlay').style.display = 'none';
+        
+        // Reset button
+        const resetBtn = document.getElementById('reconcileBtn');
+        resetBtn.disabled = false;
+        resetBtn.innerHTML = `
+            <i data-lucide="play" class="w-4 h-4"></i>
+            <span>Start Reconciliation</span>
+        `;
+        lucide.createIcons();
+        
+        updateStatus("Files processed successfully!", "success");
 
         // Update metrics panel
         createMetricsPanel(data.metrics);
@@ -552,6 +671,19 @@ async function uploadFiles() {
 
     } catch (error) {
         console.error("Upload error:", error);
-        updateStatus(error.message, true);
+        
+        // Hide loading overlay
+        document.getElementById('loadingOverlay').style.display = 'none';
+        
+        // Reset button
+        const errorBtn = document.getElementById('reconcileBtn');
+        errorBtn.disabled = false;
+        errorBtn.innerHTML = `
+            <i data-lucide="play" class="w-4 h-4"></i>
+            <span>Start Reconciliation</span>
+        `;
+        lucide.createIcons();
+        
+        updateStatus(error.message, "error");
     }
 }
