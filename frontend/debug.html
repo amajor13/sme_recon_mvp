@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Debug SME Reconciliation</title>
+    <script>
+        // Test basic functionality
+        console.log("Debug page loaded");
+        
+        function testBasicFunctions() {
+            console.log("Testing basic functions...");
+            
+            // Test formatCurrency
+            try {
+                const result = formatCurrency(1000);
+                console.log("formatCurrency test:", result);
+            } catch (e) {
+                console.error("formatCurrency error:", e);
+            }
+            
+            // Test formatDate
+            try {
+                const result = formatDate("2025-09-28");
+                console.log("formatDate test:", result);
+            } catch (e) {
+                console.error("formatDate error:", e);
+            }
+            
+            // Test getConfidenceClass
+            try {
+                const result = getConfidenceClass(0.95);
+                console.log("getConfidenceClass test:", result);
+            } catch (e) {
+                console.error("getConfidenceClass error:", e);
+            }
+        }
+        
+        window.onload = function() {
+            console.log("Window loaded, testing functions...");
+            testBasicFunctions();
+        }
+    </script>
+</head>
+<body>
+    <h1>JavaScript Debug Page</h1>
+    <p>Check the browser console for debug information.</p>
+    <button onclick="testBasicFunctions()">Test Functions</button>
+    
+    <script src="app.js"></script>
+</body>
+</html>
+</pre>

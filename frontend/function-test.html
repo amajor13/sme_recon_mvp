@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Function Test</title>
+</head>
+<body>
+    <h1>Testing Functions</h1>
+    <button onclick="testFunctions()">Test All Functions</button>
+    <div id="results"></div>
+    
+    <script src="app.js"></script>
+    <script>
+        function testFunctions() {
+            const results = document.getElementById('results');
+            results.innerHTML = '';
+            
+            const tests = [
+                () => formatCurrency(1000),
+                () => formatDate('2025-09-28'),
+                () => getConfidenceClass(0.95),
+                () => typeof updateStatus,
+                () => typeof createReconciledTable,
+                () => typeof createUnmatchedTable,
+                () => typeof exportToExcel
+            ];
+            
+            tests.forEach((test, index) => {
+                try {
+                    const result = test();
+                    results.innerHTML += `<p>Test ${index + 1}: ✅ ${result}</p>`;
+                } catch (error) {
+                    results.innerHTML += `<p>Test ${index + 1}: ❌ ${error.message}</p>`;
+                }
+            });
+        }
+        
+        // Auto-run tests
+        window.onload = testFunctions;
+    </script>
+</body>
+</html>

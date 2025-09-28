@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>SME Reconciliation MVP - Debug</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .upload-section {
+            margin: 20px 0;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        .table-container {
+            margin-top: 20px;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+            font-size: 12px;
+        }
+        th, td {
+            border: 1px solid #ddd;
+            padding: 6px;
+            text-align: left;
+        }
+        th {
+            background-color: #f4f4f4;
+            position: sticky;
+            top: 0;
+        }
+        .status-section {
+            margin-top: 20px;
+            padding: 10px;
+            border-radius: 5px;
+        }
+        .error {
+            color: red;
+            background-color: #ffebee;
+        }
+        .success {
+            color: green;
+            background-color: #e8f5e8;
+        }
+        .match-score {
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-weight: bold;
+        }
+        .high-confidence {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        .medium-confidence {
+            background-color: #fff3cd;
+            color: #856404;
+        }
+        .low-confidence {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+        button {
+            padding: 10px 15px;
+            margin: 5px;
+            border: none;
+            border-radius: 4px;
+            background-color: #007bff;
+            color: white;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+    </style>
+</head>
+<body>
+    <h1>SME Reconciliation MVP - Debug Version</h1>
+    
+    <div class="upload-section">
+        <h2>Upload Transactions</h2>
+        <div>
+            <label for="gstr2bFile">GSTR2B File:</label>
+            <input type="file" id="gstr2bFile" accept=".xlsx,.xls,.csv">
+        </div>
+        <div>
+            <label for="tallyFile">Tally File:</label>
+            <input type="file" id="tallyFile" accept=".xlsx,.xls,.csv">
+        </div>
+        <button onclick="uploadFiles()">Reconcile Files</button>
+        <button onclick="exportToExcel()">Export to Excel</button>
+        <div id="status" class="status-section"></div>
+    </div>
+
+    <div class="table-container">
+        <div id="reconciledTable"></div>
+    </div>
+
+    <div class="table-container">
+        <div id="unmatchedTable"></div>
+    </div>
+
+    <script src="https://unpkg.com/xlsx/dist/xlsx.full.min.js"></script>
+    <script src="debug-app.js"></script>
+</body>
+</html>

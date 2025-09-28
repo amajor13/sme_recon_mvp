@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Simple Upload Test</title>
+</head>
+<body>
+    <h1>Upload Test</h1>
+    
+    <div>
+        <label for="gstr2bFile">GSTR2B File:</label>
+        <input type="file" id="gstr2bFile" accept=".xlsx,.xls,.csv">
+    </div>
+    <div>
+        <label for="tallyFile">Tally File:</label>
+        <input type="file" id="tallyFile" accept=".xlsx,.xls,.csv">
+    </div>
+    <button onclick="testUpload()">Test Upload</button>
+    <div id="testStatus"></div>
+    
+    <script>
+        async function testUpload() {
+            console.log("Test upload started");
+            document.getElementById('testStatus').textContent = "Testing...";
+            
+            try {
+                const gstr2bFile = document.getElementById("gstr2bFile").files[0];
+                const tallyFile = document.getElementById("tallyFile").files[0];
+                
+                if (!gstr2bFile || !tallyFile) {
+                    throw new Error("Please select both files");
+                }
+                
+                const formData = new FormData();
+                formData.append("bank_file", gstr2bFile);
+                formData.append("ledger_file", tallyFile);
+
+                const response = await fetch("http://127.0.0.1:8000/upload/", {
+                    method: "POST",
+                    body: formData
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.detail || "Upload failed");
+                }
+
+                const data = await response.json();
+                document.getElementById('testStatus').textContent = "Upload successful! Check console for data.";
+                console.log("Received data:", data);
+                
+            } catch (error) {
+                console.error("Upload error:", error);
+                document.getElementById('testStatus').textContent = "Error: " + error.message;
+            }
+        }
+    </script>
+</body>
+</html>
