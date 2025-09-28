@@ -73,9 +73,9 @@
         <div class="table-actions">
             <select id="confidenceFilter">
                 <option value="all">All Matches</option>
-                <option value="high">High Confidence (>0.9)</option>
-                <option value="medium">Medium Confidence (0.8-0.9)</option>
-                <option value="low">Low Confidence (<0.8)</option>
+                <option value="high">High Confidence (≥95%)</option>
+                <option value="medium">Medium Confidence (85-95%)</option>
+                <option value="low">Low Confidence (<85%)</option>
             </select>
             <button onclick="exportToExcel()">Export to Excel</button>
         </div>
@@ -84,6 +84,11 @@
 
     <div class="table-container">
         <h2>Unmatched Transactions</h2>
+        <div class="table-actions">
+            <button onclick="exportUnmatchedGSTR2B()">Export Unmatched GSTR2B</button>
+            <button onclick="exportUnmatchedTally()">Export Unmatched Tally</button>
+            <button onclick="exportAllUnmatched()">Export All Unmatched</button>
+        </div>
         <div id="unmatchedTable"></div>
     </div>
 
@@ -163,6 +168,95 @@
             padding: 10px;
             border: 1px solid #dee2e6;
             border-radius: 4px;
+        }
+        
+        /* Enhanced color coding for reconciled table */
+        .gstr2b-field {
+            background-color: #e3f2fd !important;
+            border-left: 4px solid #2196f3;
+        }
+        
+        .tally-field {
+            background-color: #f3e5f5 !important;
+            border-left: 4px solid #9c27b0;
+        }
+        
+        .match-field {
+            background-color: #e8f5e8 !important;
+            border-left: 4px solid #4caf50;
+        }
+        
+        .difference-field {
+            background-color: #fff3e0 !important;
+            border-left: 4px solid #ff9800;
+        }
+        
+        /* Amount difference highlighting */
+        .amount-exact {
+            color: #155724;
+            font-weight: bold;
+        }
+        
+        .amount-small-diff {
+            color: #856404;
+        }
+        
+        .amount-large-diff {
+            color: #721c24;
+        }
+        
+        /* Date difference highlighting */
+        .date-exact {
+            color: #155724;
+            font-weight: bold;
+        }
+        
+        .date-diff {
+            color: #856404;
+        }
+        
+        /* Source type badges */
+        .source-gstr2b {
+            background-color: #2196f3;
+            color: white;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 12px;
+        }
+        
+        .source-tally {
+            background-color: #9c27b0;
+            color: white;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 12px;
+        }
+        
+        /* Table improvements */
+        .reconciled-table {
+            font-size: 12px;
+        }
+        
+        .reconciled-table th {
+            position: sticky;
+            top: 0;
+            background-color: #f4f4f4;
+            z-index: 10;
+        }
+        
+        .field-header-gstr2b {
+            background-color: #e3f2fd !important;
+            color: #1565c0;
+        }
+        
+        .field-header-tally {
+            background-color: #f3e5f5 !important;
+            color: #7b1fa2;
+        }
+        
+        .field-header-match {
+            background-color: #e8f5e8 !important;
+            color: #2e7d32;
         }
     </style>
 </body>

@@ -1,7 +1,7 @@
 function getConfidenceClass(score) {
-    if (score >= 0.9) return 'high-confidence';
-    if (score >= 0.8) return 'medium-confidence';
-    return 'low-confidence';
+    if (score >= 0.95) return 'high-confidence';    // Perfect/near-perfect matches
+    if (score >= 0.85) return 'medium-confidence';  // Good matches  
+    return 'low-confidence';                        // Possible matches
 }
 
 function formatCurrency(amount) {
@@ -95,12 +95,180 @@ function createDuplicatesPanel(duplicates) {
     }
 }
 
-function createTable(data, columns) {
+function createReconciledTable(data) {
     const container = document.createElement('div');
     
     if (!data || data.length === 0) {
         const p = document.createElement('p');
-        p.textContent = 'No data available';
+        p.textContent = 'No reconciled transactions available';
+        container.appendChild(p);
+        return container;
+    }
+
+    const table = document.createElement('table');
+    table.className = 'reconciled-table';
+    
+    // Create header with grouped columns
+    const thead = document.createElement('thead');
+    
+    // Main header row
+    const mainHeaderRow = document.createElement('tr');
+    
+    // Match Info columns
+    const matchHeader = document.createElement('th');
+    matchHeader.textContent = 'Match Info';
+    matchHeader.className = 'field-header-match';
+    matchHeader.colSpan = 5;
+    mainHeaderRow.appendChild(matchHeader);
+    
+    // GSTR2B columns
+    const gstr2bHeader = document.createElement('th');
+    gstr2bHeader.textContent = 'GSTR2B Data';
+    gstr2bHeader.className = 'field-header-gstr2b';
+    gstr2bHeader.colSpan = 7;
+    mainHeaderRow.appendChild(gstr2bHeader);
+    
+    // Tally columns
+    const tallyHeader = document.createElement('th');
+    tallyHeader.textContent = 'Tally Data';
+    tallyHeader.className = 'field-header-tally';
+    tallyHeader.colSpan = 7;
+    mainHeaderRow.appendChild(tallyHeader);
+    
+    thead.appendChild(mainHeaderRow);
+    
+    // Sub header row
+    const subHeaderRow = document.createElement('tr');
+    
+    // Match Info sub-headers
+    ['Score', 'Invoice No', 'Date', 'Amount', 'Vendor'].forEach(col => {
+        const th = document.createElement('th');
+        th.textContent = col;
+        th.className = 'field-header-match';
+        subHeaderRow.appendChild(th);
+    });
+    
+    // GSTR2B sub-headers
+    ['Date', 'Invoice', 'GSTIN', 'Total Amt', 'Taxable', 'IGST', 'CGST/SGST'].forEach(col => {
+        const th = document.createElement('th');
+        th.textContent = col;
+        th.className = 'field-header-gstr2b';
+        subHeaderRow.appendChild(th);
+    });
+    
+    // Tally sub-headers
+    ['Date', 'Invoice', 'GSTIN', 'Total Amt', 'Base Amt', 'Tax Amt', 'Type'].forEach(col => {
+        const th = document.createElement('th');
+        th.textContent = col;
+        th.className = 'field-header-tally';
+        subHeaderRow.appendChild(th);
+    });
+    
+    thead.appendChild(subHeaderRow);
+    table.appendChild(thead);
+
+    // Create body
+    const tbody = document.createElement('tbody');
+    data.forEach(row => {
+        const tr = document.createElement('tr');
+        
+        // Match Info cells
+        const scoreCell = document.createElement('td');
+        const score = parseFloat(row.match_score || 0);
+        scoreCell.innerHTML = `<span class="match-score ${getConfidenceClass(score)}">${score.toFixed(3)}</span>`;
+        scoreCell.className = 'match-field';
+        tr.appendChild(scoreCell);
+        
+        const invoiceCell = document.createElement('td');
+        invoiceCell.textContent = row.invoice_no || '';
+        invoiceCell.className = 'match-field';
+        tr.appendChild(invoiceCell);
+        
+        const dateCell = document.createElement('td');
+        dateCell.textContent = formatDate(row.date);
+        dateCell.className = `match-field ${row.date_difference === 0 ? 'date-exact' : 'date-diff'}`;
+        tr.appendChild(dateCell);
+        
+        const amountCell = document.createElement('td');
+        amountCell.textContent = formatCurrency(row.amount);
+        const amountDiff = row.amount_difference || 0;
+        const amountClass = amountDiff === 0 ? 'amount-exact' : amountDiff < 1000 ? 'amount-small-diff' : 'amount-large-diff';
+        amountCell.className = `match-field ${amountClass}`;
+        tr.appendChild(amountCell);
+        
+        const vendorCell = document.createElement('td');
+        vendorCell.textContent = row.vendor || '';
+        vendorCell.className = 'match-field';
+        tr.appendChild(vendorCell);
+        
+        // GSTR2B cells with error handling
+        try {
+            [
+                formatDate(row.gstr2b_date),
+                row.gstr2b_invoice_no || '',
+                row.gstr2b_supplier_gstin || '',
+                formatCurrency(row.gstr2b_total_amount),
+                formatCurrency(row.gstr2b_taxable_value),
+                formatCurrency(row.gstr2b_igst),
+                formatCurrency((row.gstr2b_cgst || 0) + (row.gstr2b_sgst || 0))
+            ].forEach(value => {
+                const td = document.createElement('td');
+                td.innerHTML = value || '';
+                td.className = 'gstr2b-field';
+                tr.appendChild(td);
+            });
+        } catch (e) {
+            console.error("Error creating GSTR2B cells:", e, row);
+            // Fallback: create empty cells
+            for (let i = 0; i < 7; i++) {
+                const td = document.createElement('td');
+                td.textContent = 'Error';
+                td.className = 'gstr2b-field';
+                tr.appendChild(td);
+            }
+        }
+        
+        // Tally cells with error handling
+        try {
+            [
+                formatDate(row.tally_date),
+                row.tally_invoice_no || '',
+                row.tally_supplier_gstin || '',
+                formatCurrency(row.tally_total_amount),
+                formatCurrency(row.tally_base_amount),
+                formatCurrency(row.tally_tax_amount),
+                row.tally_type || ''
+            ].forEach(value => {
+                const td = document.createElement('td');
+                td.innerHTML = value || '';
+                td.className = 'tally-field';
+                tr.appendChild(td);
+            });
+        } catch (e) {
+            console.error("Error creating Tally cells:", e, row);
+            // Fallback: create empty cells
+            for (let i = 0; i < 7; i++) {
+                const td = document.createElement('td');
+                td.textContent = 'Error';
+                td.className = 'tally-field';
+                tr.appendChild(td);
+            }
+        }
+        
+        tbody.appendChild(tr);
+    });
+    table.appendChild(tbody);
+    
+    container.appendChild(table);
+    return container;
+}
+
+function createUnmatchedTable(data, source) {
+    const container = document.createElement('div');
+    
+    if (!data || data.length === 0) {
+        const p = document.createElement('p');
+        p.textContent = `No unmatched ${source} transactions`;
         container.appendChild(p);
         return container;
     }
@@ -111,14 +279,18 @@ function createTable(data, columns) {
     const thead = document.createElement('thead');
     const headerRow = document.createElement('tr');
     
-    // Add confidence score column for reconciled transactions
-    if (data[0].hasOwnProperty('match_score')) {
-        columns = ['match_score', ...columns];
-    }
+    const columns = source === 'GSTR2B' 
+        ? ['date', 'invoice_no', 'supplier_gstin', 'total_amount', 'taxable_value', 'igst', 'cgst', 'sgst']
+        : ['date', 'invoice_no', 'supplier_gstin', 'total_amount', 'base_amount', 'tax_amount', 'type'];
     
-    columns.forEach(column => {
+    const headerLabels = source === 'GSTR2B'
+        ? ['Date', 'Invoice No', 'Supplier GSTIN', 'Total Amount', 'Taxable Value', 'IGST', 'CGST', 'SGST']
+        : ['Date', 'Invoice No', 'Supplier GSTIN', 'Total Amount', 'Base Amount', 'Tax Amount', 'Type'];
+    
+    headerLabels.forEach((label, index) => {
         const th = document.createElement('th');
-        th.textContent = column.charAt(0).toUpperCase() + column.slice(1).replace('_', ' ');
+        th.textContent = label;
+        th.className = source === 'GSTR2B' ? 'field-header-gstr2b' : 'field-header-tally';
         headerRow.appendChild(th);
     });
     thead.appendChild(headerRow);
@@ -132,10 +304,7 @@ function createTable(data, columns) {
         columns.forEach(column => {
             const td = document.createElement('td');
             
-            if (column === 'match_score') {
-                const score = parseFloat(row[column] || 0);
-                td.innerHTML = `<span class="match-score ${getConfidenceClass(score)}">${score.toFixed(2)}</span>`;
-            } else if (column === 'amount') {
+            if (column.includes('amount') || column.includes('gst')) {
                 td.textContent = formatCurrency(row[column]);
             } else if (column === 'date') {
                 td.textContent = formatDate(row[column]);
@@ -143,6 +312,7 @@ function createTable(data, columns) {
                 td.textContent = row[column] || '';
             }
             
+            td.className = source === 'GSTR2B' ? 'gstr2b-field' : 'tally-field';
             tr.appendChild(td);
         });
         
@@ -150,7 +320,6 @@ function createTable(data, columns) {
     });
     table.appendChild(tbody);
     
-    // Add the table to the container
     container.appendChild(table);
     return container;
 }
@@ -182,7 +351,62 @@ function exportToExcel() {
     }
 
     // Export the workbook
-    XLSX.writeFile(workbook, 'reconciliation_report.xlsx');
+    const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
+    XLSX.writeFile(workbook, `reconciliation_report_${timestamp}.xlsx`);
+}
+
+function exportUnmatchedGSTR2B() {
+    if (!window.unmatchedBank || window.unmatchedBank.length === 0) {
+        updateStatus('No unmatched GSTR2B data to export', true);
+        return;
+    }
+
+    const workbook = XLSX.utils.book_new();
+    const worksheet = XLSX.utils.json_to_sheet(window.unmatchedBank);
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Unmatched GSTR2B');
+    
+    const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
+    XLSX.writeFile(workbook, `unmatched_gstr2b_${timestamp}.xlsx`);
+    updateStatus('Unmatched GSTR2B data exported successfully!');
+}
+
+function exportUnmatchedTally() {
+    if (!window.unmatchedLedger || window.unmatchedLedger.length === 0) {
+        updateStatus('No unmatched Tally data to export', true);
+        return;
+    }
+
+    const workbook = XLSX.utils.book_new();
+    const worksheet = XLSX.utils.json_to_sheet(window.unmatchedLedger);
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Unmatched Tally');
+    
+    const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
+    XLSX.writeFile(workbook, `unmatched_tally_${timestamp}.xlsx`);
+    updateStatus('Unmatched Tally data exported successfully!');
+}
+
+function exportAllUnmatched() {
+    if ((!window.unmatchedBank || window.unmatchedBank.length === 0) && 
+        (!window.unmatchedLedger || window.unmatchedLedger.length === 0)) {
+        updateStatus('No unmatched data to export', true);
+        return;
+    }
+
+    const workbook = XLSX.utils.book_new();
+    
+    if (window.unmatchedBank && window.unmatchedBank.length > 0) {
+        const gstr2bSheet = XLSX.utils.json_to_sheet(window.unmatchedBank);
+        XLSX.utils.book_append_sheet(workbook, gstr2bSheet, 'Unmatched GSTR2B');
+    }
+    
+    if (window.unmatchedLedger && window.unmatchedLedger.length > 0) {
+        const tallySheet = XLSX.utils.json_to_sheet(window.unmatchedLedger);
+        XLSX.utils.book_append_sheet(workbook, tallySheet, 'Unmatched Tally');
+    }
+    
+    const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
+    XLSX.writeFile(workbook, `all_unmatched_transactions_${timestamp}.xlsx`);
+    updateStatus('All unmatched data exported successfully!');
 }
 
 function updateStatus(message, isError = false) {
@@ -225,58 +449,104 @@ async function uploadFiles() {
         // Update duplicates panel
         createDuplicatesPanel(data.duplicates);
 
-        // Define columns for the tables
-        const columns = ['date', 'amount', 'vendor', 'gstr2b_reference', 'tally_reference'];
+        // Store the data globally for filtering and export
+        window.reconciledData = data.reconciled || [];
+        window.unmatchedBank = data.unmatched_bank || [];
+        window.unmatchedLedger = data.unmatched_ledger || [];
 
-        // Store the reconciled data globally for filtering
-        window.reconciledData = data.reconciled;
-
-        // Function to filter and display reconciled transactions
+        // Function to filter and display reconciled transactions with error handling
         function updateReconciledTable(confidence = 'all') {
-            const filtered = window.reconciledData.filter(row => {
-                const score = row.match_score;
-                switch(confidence) {
-                    case 'high': return score >= 0.9;
-                    case 'medium': return score >= 0.8 && score < 0.9;
-                    case 'low': return score < 0.8;
-                    default: return true;
+            try {
+                const filtered = (window.reconciledData || []).filter(row => {
+                    const score = parseFloat(row.match_score) || 0;
+                    switch(confidence) {
+                        case 'high': return score >= 0.95;   // Perfect/near-perfect matches
+                        case 'medium': return score >= 0.85 && score < 0.95;  // Good matches
+                        case 'low': return score < 0.85;     // Possible matches
+                        default: return true;
+                    }
+                });
+                
+                const reconciledTable = document.getElementById('reconciledTable');
+                if (reconciledTable) {
+                    reconciledTable.innerHTML = '';
+                    if (filtered && filtered.length > 0) {
+                        console.log("Creating enhanced reconciled table with", filtered.length, "transactions");
+                        console.log("Sample data:", filtered[0]);
+                        try {
+                            reconciledTable.appendChild(createReconciledTable(filtered));
+                        } catch (tableError) {
+                            console.error("Error creating enhanced table, falling back:", tableError);
+                            // Fallback to simple table
+                            reconciledTable.innerHTML = `<p>Error creating enhanced table: ${tableError.message}</p>`;
+                        }
+                    } else {
+                        reconciledTable.innerHTML = '<p>No reconciled transactions to display.</p>';
+                    }
                 }
-            });
-            
-            const reconciledTable = document.getElementById('reconciledTable');
-            reconciledTable.innerHTML = '';
-            reconciledTable.appendChild(createTable(filtered, columns));
+            } catch (error) {
+                console.error("Error updating reconciled table:", error);
+                const reconciledTable = document.getElementById('reconciledTable');
+                if (reconciledTable) {
+                    reconciledTable.innerHTML = '<p>Error displaying reconciled transactions.</p>';
+                }
+            }
         }
 
         // Initial display of reconciled transactions
+        console.log("Calling updateReconciledTable with data:", window.reconciledData);
         updateReconciledTable();
 
-        // Add confidence filter event listener
-        document.getElementById('confidenceFilter').addEventListener('change', (e) => {
-            updateReconciledTable(e.target.value);
-        });
+        // Add confidence filter event listener if not already added
+        const confidenceFilter = document.getElementById('confidenceFilter');
+        const existingHandler = confidenceFilter.getAttribute('data-handler-added');
+        if (!existingHandler) {
+            confidenceFilter.addEventListener('change', (e) => {
+                updateReconciledTable(e.target.value);
+            });
+            confidenceFilter.setAttribute('data-handler-added', 'true');
+        }
 
-        // Update unmatched transactions tables
-        const unmatchedTable = document.getElementById('unmatchedTable');
-        
-        // Create container for unmatched GSTR2B transactions
-        const gstr2bDiv = document.createElement('div');
-        const gstr2bHeader = document.createElement('h3');
-        gstr2bHeader.textContent = 'Unmatched GSTR2B Transactions';
-        gstr2bDiv.appendChild(gstr2bHeader);
-        gstr2bDiv.appendChild(createTable(data.unmatched_bank, ['date', 'amount', 'vendor', 'reference']));
+        // Update unmatched transactions tables with error handling
+        try {
+            const unmatchedTable = document.getElementById('unmatchedTable');
+            if (unmatchedTable) {
+                unmatchedTable.innerHTML = '';
+                
+                // Create container for unmatched GSTR2B transactions
+                if (data.unmatched_bank && data.unmatched_bank.length > 0) {
+                    const gstr2bDiv = document.createElement('div');
+                    const gstr2bHeader = document.createElement('h3');
+                    gstr2bHeader.textContent = 'Unmatched GSTR2B Transactions ';
+                    gstr2bHeader.innerHTML += '<span class="source-gstr2b">GSTR2B</span>';
+                    gstr2bDiv.appendChild(gstr2bHeader);
+                    gstr2bDiv.appendChild(createUnmatchedTable(data.unmatched_bank, 'GSTR2B'));
+                    unmatchedTable.appendChild(gstr2bDiv);
+                }
 
-        // Create container for unmatched Tally transactions
-        const tallyDiv = document.createElement('div');
-        const tallyHeader = document.createElement('h3');
-        tallyHeader.textContent = 'Unmatched Tally Transactions';
-        tallyDiv.appendChild(tallyHeader);
-        tallyDiv.appendChild(createTable(data.unmatched_ledger, ['date', 'amount', 'vendor', 'reference']));
-
-        // Clear and update the unmatched table container
-        unmatchedTable.innerHTML = '';
-        unmatchedTable.appendChild(gstr2bDiv);
-        unmatchedTable.appendChild(tallyDiv);
+                // Create container for unmatched Tally transactions
+                if (data.unmatched_ledger && data.unmatched_ledger.length > 0) {
+                    const tallyDiv = document.createElement('div');
+                    const tallyHeader = document.createElement('h3');
+                    tallyHeader.textContent = 'Unmatched Tally Transactions ';
+                    tallyHeader.innerHTML += '<span class="source-tally">TALLY</span>';
+                    tallyDiv.appendChild(tallyHeader);
+                    tallyDiv.appendChild(createUnmatchedTable(data.unmatched_ledger, 'Tally'));
+                    unmatchedTable.appendChild(tallyDiv);
+                }
+                
+                if ((!data.unmatched_bank || data.unmatched_bank.length === 0) && 
+                    (!data.unmatched_ledger || data.unmatched_ledger.length === 0)) {
+                    unmatchedTable.innerHTML = '<p>No unmatched transactions found! All transactions were successfully reconciled.</p>';
+                }
+            }
+        } catch (error) {
+            console.error("Error updating unmatched tables:", error);
+            const unmatchedTable = document.getElementById('unmatchedTable');
+            if (unmatchedTable) {
+                unmatchedTable.innerHTML = '<p>Error displaying unmatched transactions.</p>';
+            }
+        }
 
     } catch (error) {
         console.error("Upload error:", error);

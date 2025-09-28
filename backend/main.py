@@ -132,10 +132,10 @@ def read_and_process_file(filepath: str, file_type: str) -> pd.DataFrame:
         
         # Standardize column names based on file type
         if 'gstr2b' in file_type.lower():
-            # GSTR2B file processing
+            # GSTR2B file processing - use Total Invoice Value for comparison
             column_mapping = {
                 'invoice date': 'date',
-                'total invoice value': 'amount', 
+                'total invoice value': 'amount',  # Use total amount including taxes
                 'supplier gstin': 'vendor',
                 'invoice no': 'reference',
                 'gstin of supplier': 'vendor',
@@ -146,11 +146,11 @@ def read_and_process_file(filepath: str, file_type: str) -> pd.DataFrame:
                 'sgst': 'sgst'
             }
         else:
-            # Tally file processing  
+            # Tally file processing - use Total Amount for comparison
             column_mapping = {
                 'date': 'date',
-                'amount': 'amount',
-                'total amount': 'amount',
+                'amount': 'base_amount',        # Keep base amount separate
+                'total amount': 'amount',       # Use total amount including taxes
                 'vendor': 'vendor',
                 'supplier gstin': 'vendor',
                 'reference': 'reference',
@@ -225,11 +225,11 @@ def reconcile_transactions(gstr2b_df: pd.DataFrame, tally_df: pd.DataFrame) -> D
     matched_gstr2b_indices = set()
     matched_tally_indices = set()
     
-    # More flexible configuration for matching
+    # Improved configuration for matching with higher precision
     amount_tolerance_percent = 0.05  # 5% amount tolerance
-    date_window = 30  # 30 days window (more flexible)
-    vendor_similarity_threshold = 0.6  # Lower threshold
-    min_match_threshold = 0.4  # Lower minimum threshold
+    date_window = 30  # 30 days window 
+    vendor_similarity_threshold = 0.6  # Vendor similarity threshold
+    min_match_threshold = 0.5  # Higher minimum threshold for better quality matches
     
     match_attempts = 0
     
@@ -252,12 +252,14 @@ def reconcile_transactions(gstr2b_df: pd.DataFrame, tally_df: pd.DataFrame) -> D
             
             # 1. Reference/Invoice number matching (HIGHEST PRIORITY for exact matches)
             ref_sim = similarity_score(str(gstr2b_row['reference']), str(tally_row['reference']))
-            if ref_sim >= 0.95:  # Nearly exact match (accounts for minor formatting differences)
-                score += 0.6  # 60% of total score for exact invoice match
-            elif ref_sim >= 0.8:  # Very similar
-                score += ref_sim * 0.4  # Up to 32% for very similar
+            if ref_sim >= 0.98:  # Perfect or near-perfect match
+                score += 0.65  # 65% of total score for perfect invoice match
+            elif ref_sim >= 0.9:  # Very high similarity
+                score += 0.55 + (ref_sim - 0.9) * 1.0  # 55% + bonus up to 65%
+            elif ref_sim >= 0.8:  # High similarity
+                score += ref_sim * 0.5  # Up to 40% for high similarity
             else:
-                score += ref_sim * 0.1  # Up to 10% for partial similarity
+                score += ref_sim * 0.15  # Up to 15% for partial similarity
             factors['reference'] = ref_sim
             debug_info['ref_sim'] = ref_sim
             
@@ -267,7 +269,11 @@ def reconcile_transactions(gstr2b_df: pd.DataFrame, tally_df: pd.DataFrame) -> D
             amount_diff = abs(gstr2b_amount - tally_amount)
             amount_percent_diff = amount_diff / max(gstr2b_amount, tally_amount) if max(gstr2b_amount, tally_amount) > 0 else 1
             
-            if amount_percent_diff <= amount_tolerance_percent:
+            if amount_percent_diff <= 0.001:  # Perfect match (within 0.1%)
+                amount_score = 1.0
+                score += 0.25  # Full 25% for perfect amount match
+                factors['amount'] = amount_score
+            elif amount_percent_diff <= amount_tolerance_percent:
                 amount_score = 1.0 - (amount_percent_diff / amount_tolerance_percent)
                 score += amount_score * 0.25
                 factors['amount'] = amount_score
@@ -277,6 +283,8 @@ def reconcile_transactions(gstr2b_df: pd.DataFrame, tally_df: pd.DataFrame) -> D
                     amount_score = max(0, 1.0 - (amount_percent_diff / 0.2)) * 0.5
                     score += amount_score * 0.25
                     factors['amount'] = amount_score
+                else:
+                    factors['amount'] = 0
             
             debug_info['amount_diff'] = amount_diff
             debug_info['amount_percent_diff'] = amount_percent_diff
@@ -284,23 +292,32 @@ def reconcile_transactions(gstr2b_df: pd.DataFrame, tally_df: pd.DataFrame) -> D
             # 3. Date matching (third priority)
             try:
                 date_diff = abs((gstr2b_row['date'] - tally_row['date']).days)
-                if date_diff <= date_window:
+                if date_diff == 0:  # Exact same date
+                    score += 0.08  # Full 8% for exact date match
+                    factors['date'] = 1.0
+                elif date_diff <= date_window:
                     date_score = max(0, 1 - (date_diff / date_window))
-                    score += date_score * 0.1
+                    score += date_score * 0.08
                     factors['date'] = date_score
+                else:
+                    factors['date'] = 0
                 debug_info['date_diff'] = date_diff
             except Exception as e:
                 factors['date'] = 0
                 debug_info['date_error'] = str(e)
             
-            # 4. Vendor similarity (lowest priority, mainly for tie-breaking)
+            # 4. Vendor similarity (for tie-breaking and validation)
             vendor_sim = similarity_score(str(gstr2b_row['vendor']), str(tally_row['vendor']))
-            if vendor_sim >= vendor_similarity_threshold:
-                score += vendor_sim * 0.05
+            if vendor_sim >= 0.95:  # Perfect or near-perfect vendor match
+                score += 0.02  # 2% bonus for perfect vendor match
+                factors['vendor'] = vendor_sim
+            elif vendor_sim >= vendor_similarity_threshold:
+                score += vendor_sim * 0.02  # Up to 2% for good vendor match
+                factors['vendor'] = vendor_sim
             else:
-                # Give small partial score for any similarity
-                score += vendor_sim * 0.02
-            factors['vendor'] = vendor_sim
+                # Small partial score for any similarity
+                score += vendor_sim * 0.01
+                factors['vendor'] = vendor_sim
             debug_info['vendor_sim'] = vendor_sim
             
             debug_info['total_score'] = score
@@ -330,11 +347,20 @@ def reconcile_transactions(gstr2b_df: pd.DataFrame, tally_df: pd.DataFrame) -> D
                 print(f"  Ref sim: {best_debug_info['ref_sim']:.3f}")
                 print(f"  Score breakdown: Ref={best_debug_info['factors']['reference']:.3f}, Amount={best_debug_info['factors'].get('amount', 0):.3f}, Date={best_debug_info['factors'].get('date', 0):.3f}, Vendor={best_debug_info['factors']['vendor']:.3f}")
                 
-                # Calculate theoretical maximum for exact match
-                ref_contribution = 0.6 if best_debug_info['ref_sim'] >= 0.95 else best_debug_info['ref_sim'] * 0.4
+                # Calculate theoretical score breakdown for debugging
+                ref_sim = best_debug_info['ref_sim']
+                if ref_sim >= 0.98:
+                    ref_contribution = 0.65
+                elif ref_sim >= 0.9:
+                    ref_contribution = 0.55 + (ref_sim - 0.9) * 1.0
+                elif ref_sim >= 0.8:
+                    ref_contribution = ref_sim * 0.5
+                else:
+                    ref_contribution = ref_sim * 0.15
+                
                 amount_contribution = best_debug_info['factors'].get('amount', 0) * 0.25
-                date_contribution = best_debug_info['factors'].get('date', 0) * 0.1
-                vendor_contribution = best_debug_info['factors']['vendor'] * 0.05
+                date_contribution = best_debug_info['factors'].get('date', 0) * 0.08
+                vendor_contribution = best_debug_info['factors']['vendor'] * 0.02
                 calculated_score = ref_contribution + amount_contribution + date_contribution + vendor_contribution
                 print(f"  Manual calc: Ref({ref_contribution:.3f}) + Amount({amount_contribution:.3f}) + Date({date_contribution:.3f}) + Vendor({vendor_contribution:.3f}) = {calculated_score:.3f}")
         
@@ -346,9 +372,9 @@ def reconcile_transactions(gstr2b_df: pd.DataFrame, tally_df: pd.DataFrame) -> D
     
     # Calculate metrics
     total_matches = len(matches)
-    high_confidence = len([m for m in matches if m['match_score'] >= 0.9])
-    medium_confidence = len([m for m in matches if 0.8 <= m['match_score'] < 0.9])
-    low_confidence = len([m for m in matches if m['match_score'] < 0.8])
+    high_confidence = len([m for m in matches if m['match_score'] >= 0.95])  # Perfect/near-perfect matches
+    medium_confidence = len([m for m in matches if 0.85 <= m['match_score'] < 0.95])  # Good matches
+    low_confidence = len([m for m in matches if m['match_score'] < 0.85])  # Possible matches
     average_score = sum(m['match_score'] for m in matches) / total_matches if total_matches > 0 else 0
     
     # Get unmatched transactions
@@ -428,7 +454,7 @@ async def upload_files(
         # Perform reconciliation
         reconciliation_results = reconcile_transactions(gstr2b_df, tally_df)
         
-        # Format matches for frontend
+        # Format matches for frontend with all major fields
         reconciled_transactions = []
         for match in reconciliation_results['matches']:
             gstr2b_data = match['gstr2b_data']
@@ -446,73 +472,113 @@ async def upload_files(
                 tally_date_str = ''
             
             # Format amounts properly
-            try:
-                gstr2b_amount = float(gstr2b_data['amount']) if pd.notnull(gstr2b_data['amount']) else 0.0
-            except:
-                gstr2b_amount = 0.0
-                
-            try:
-                tally_amount = float(tally_data['amount']) if pd.notnull(tally_data['amount']) else 0.0
-            except:
-                tally_amount = 0.0
+            def safe_float(val, default=0.0):
+                try:
+                    return float(val) if pd.notnull(val) else default
+                except:
+                    return default
+                    
+            def safe_str(val, default=''):
+                try:
+                    return str(val) if pd.notnull(val) and str(val) != 'nan' else default
+                except:
+                    return default
+            
+            gstr2b_amount = safe_float(gstr2b_data['amount'])
+            tally_amount = safe_float(tally_data['amount'])
             
             # Use the primary date and amount from the match
             primary_date = gstr2b_date_str if gstr2b_date_str else tally_date_str
             primary_amount = gstr2b_amount if gstr2b_amount != 0 else tally_amount
             
             reconciled_transactions.append({
+                # Primary reconciliation fields
+                'match_score': round(match['match_score'], 3),
                 'date': primary_date,
                 'amount': primary_amount,
-                'vendor': str(gstr2b_data['vendor']) if pd.notnull(gstr2b_data['vendor']) else str(tally_data['vendor']) if pd.notnull(tally_data['vendor']) else '',
-                'gstr2b_reference': str(gstr2b_data.get('reference', '')) if pd.notnull(gstr2b_data.get('reference', '')) else '',
-                'tally_reference': str(tally_data.get('reference', '')) if pd.notnull(tally_data.get('reference', '')) else '',
-                'match_score': round(match['match_score'], 3),
+                'vendor': safe_str(gstr2b_data['vendor']) or safe_str(tally_data['vendor']),
+                'invoice_no': safe_str(gstr2b_data.get('reference', '')) or safe_str(tally_data.get('reference', '')),
+                'gstr2b_reference': safe_str(gstr2b_data.get('reference', '')),  # Add this for old table compatibility
+                'tally_reference': safe_str(tally_data.get('reference', '')),    # Add this for old table compatibility
+                'amount_difference': abs(gstr2b_amount - tally_amount),
+                'date_difference': abs((gstr2b_data['date'] - tally_data['date']).days) if pd.notnull(gstr2b_data['date']) and pd.notnull(tally_data['date']) else 0,
+                
+                # GSTR2B specific fields
                 'gstr2b_date': gstr2b_date_str,
-                'gstr2b_amount': gstr2b_amount,
-                'gstr2b_vendor': str(gstr2b_data['vendor']) if pd.notnull(gstr2b_data['vendor']) else '',
+                'gstr2b_invoice_no': safe_str(gstr2b_data.get('reference', '')),
+                'gstr2b_supplier_gstin': safe_str(gstr2b_data['vendor']),
+                'gstr2b_total_amount': gstr2b_amount,
+                'gstr2b_taxable_value': safe_float(gstr2b_data.get('taxable_amount', 0)),
+                'gstr2b_igst': safe_float(gstr2b_data.get('igst', 0)),
+                'gstr2b_cgst': safe_float(gstr2b_data.get('cgst', 0)),
+                'gstr2b_sgst': safe_float(gstr2b_data.get('sgst', 0)),
+                
+                # Tally specific fields
                 'tally_date': tally_date_str,
-                'tally_amount': tally_amount,
-                'tally_vendor': str(tally_data['vendor']) if pd.notnull(tally_data['vendor']) else '',
-                'amount_diff': abs(gstr2b_amount - tally_amount)
+                'tally_invoice_no': safe_str(tally_data.get('reference', '')),
+                'tally_supplier_gstin': safe_str(tally_data['vendor']),
+                'tally_total_amount': tally_amount,
+                'tally_base_amount': safe_float(tally_data.get('base_amount', 0)),
+                'tally_tax_amount': safe_float(tally_data.get('tax amount', 0)),
+                'tally_type': safe_str(tally_data.get('type', '')),
+                
+                # Match quality indicators
+                'reference_similarity': match['match_factors'].get('reference', 0),
+                'amount_similarity': match['match_factors'].get('amount', 0),
+                'date_similarity': match['match_factors'].get('date', 0),
+                'vendor_similarity': match['match_factors'].get('vendor', 0)
             })
         
-        # Format unmatched transactions for frontend
+        # Format unmatched transactions for frontend with all fields
+        def safe_float(val, default=0.0):
+            try:
+                return float(val) if pd.notnull(val) else default
+            except:
+                return default
+                
+        def safe_str(val, default=''):
+            try:
+                return str(val) if pd.notnull(val) and str(val) != 'nan' else default
+            except:
+                return default
+        
+        def safe_date(val):
+            try:
+                return val.strftime('%Y-%m-%d') if pd.notnull(val) and hasattr(val, 'strftime') else str(val)[:10] if str(val) != 'nan' else ''
+            except:
+                return ''
+        
         unmatched_bank = []
         for record in reconciliation_results['unmatched_gstr2b']:
-            try:
-                date_str = record['date'].strftime('%Y-%m-%d') if pd.notnull(record['date']) and hasattr(record['date'], 'strftime') else str(record['date'])[:10] if str(record['date']) != 'nan' else ''
-            except:
-                date_str = ''
-            
-            try:
-                amount_val = float(record['amount']) if pd.notnull(record['amount']) else 0.0
-            except:
-                amount_val = 0.0
-                
             unmatched_bank.append({
-                'date': date_str,
-                'amount': amount_val,
-                'vendor': str(record['vendor']) if pd.notnull(record['vendor']) else '',
-                'reference': str(record.get('reference', '')) if pd.notnull(record.get('reference', '')) else ''
+                'date': safe_date(record['date']),
+                'amount': safe_float(record['amount']),  # Add for old table compatibility
+                'vendor': safe_str(record['vendor']),   # Add for old table compatibility
+                'reference': safe_str(record.get('reference', '')),  # Add for old table compatibility
+                'invoice_no': safe_str(record.get('reference', '')),
+                'supplier_gstin': safe_str(record['vendor']),
+                'total_amount': safe_float(record['amount']),
+                'taxable_value': safe_float(record.get('taxable_amount', 0)),
+                'igst': safe_float(record.get('igst', 0)),
+                'cgst': safe_float(record.get('cgst', 0)),
+                'sgst': safe_float(record.get('sgst', 0)),
+                'source': 'GSTR2B'
             })
         
         unmatched_ledger = []
         for record in reconciliation_results['unmatched_tally']:
-            try:
-                date_str = record['date'].strftime('%Y-%m-%d') if pd.notnull(record['date']) and hasattr(record['date'], 'strftime') else str(record['date'])[:10] if str(record['date']) != 'nan' else ''
-            except:
-                date_str = ''
-                
-            try:
-                amount_val = float(record['amount']) if pd.notnull(record['amount']) else 0.0
-            except:
-                amount_val = 0.0
-                
             unmatched_ledger.append({
-                'date': date_str,
-                'amount': amount_val,
-                'vendor': str(record['vendor']) if pd.notnull(record['vendor']) else '',
-                'reference': str(record.get('reference', '')) if pd.notnull(record.get('reference', '')) else ''
+                'date': safe_date(record['date']),
+                'amount': safe_float(record['amount']),  # Add for old table compatibility
+                'vendor': safe_str(record['vendor']),   # Add for old table compatibility
+                'reference': safe_str(record.get('reference', '')),  # Add for old table compatibility
+                'invoice_no': safe_str(record.get('reference', '')),
+                'supplier_gstin': safe_str(record['vendor']),
+                'total_amount': safe_float(record['amount']),
+                'base_amount': safe_float(record.get('base_amount', 0)),
+                'tax_amount': safe_float(record.get('tax amount', 0)),
+                'type': safe_str(record.get('type', '')),
+                'source': 'Tally'
             })
         
         response = {
