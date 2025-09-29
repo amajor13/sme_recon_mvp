@@ -121,16 +121,15 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
+    # Keep explicit localhost entries for clarity
     allow_origins=[
-        "http://localhost:3002",
-        "http://127.0.0.1:3002",
-        "http://localhost:3003", 
+        "http://localhost:3003",
         "http://127.0.0.1:3003",
-        "http://localhost:3004",
-        "http://127.0.0.1:3004",
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
+        "https://localhost:3003",
+        "https://127.0.0.1:3003",
     ],
+    # Accept any private LAN IPv4 on common dev ports (3003 for Vite, 5173 default Vite)
+    allow_origin_regex=r"^https?://(10\\.\d+\\.\d+\\.\d+|192\\.168\\.\d+\\.\d+|172\\.(1[6-9]|2[0-9]|3[0-1])\\.\d+\\.\d+):(3003|5173)$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -726,5 +725,5 @@ async def upload_files(
 
 if __name__ == "__main__":
     import uvicorn
-    # Run on port 8004 to avoid conflicts
-    uvicorn.run(app, host="127.0.0.1", port=8004)
+    # Bind to all interfaces for LAN access; port 8004 to match Vite proxy target
+    uvicorn.run(app, host="0.0.0.0", port=8004)

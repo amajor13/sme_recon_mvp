@@ -3,15 +3,14 @@ import { createRoot } from 'react-dom/client'
 import { Auth0Provider } from '@auth0/auth0-react'
 import App from './App.tsx'
 import './index.css'
-// Import for debugging
-import * as auth0 from '@auth0/auth0-react'
+import { authConfig } from './auth0-config'
 
-// Use correct domain name with explicit typing for Auth0
-const domain: string = "dev-b8bhw7u6rgyyv5rb.us.auth0.com";
-const clientId: string = import.meta.env.VITE_AUTH0_CLIENT_ID || "oU348HVxTDfMS321Z95Fl6PpPy4aUpCR";
-const audience: string = import.meta.env.VITE_AUTH0_AUDIENCE || "https://sme-reconciliation-api";
-// Use the current window location for redirect to support different dev ports
-const redirectUri: string = window.location.origin;
+// Resolve Auth0 settings with env overrides; keep redirectUri dynamic for localhost/LAN
+const domain: string = import.meta.env.VITE_AUTH0_DOMAIN || authConfig.domain
+const clientId: string = import.meta.env.VITE_AUTH0_CLIENT_ID || authConfig.clientId
+const audience: string = import.meta.env.VITE_AUTH0_AUDIENCE || authConfig.audience
+// Normalize with a trailing slash to avoid callback mismatch when Auth0 entry includes '/'
+const redirectUri: string = `${window.location.origin}/`
 
 if (!domain || !clientId) {
   // eslint-disable-next-line no-console
