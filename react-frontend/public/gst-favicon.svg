@@ -1,0 +1,25 @@
+<svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bgGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#3B82F6" />
+      <stop offset="100%" stop-color="#1D4ED8" />
+    </linearGradient>
+  </defs>
+  
+  <!-- Background Circle -->
+  <circle cx="16" cy="16" r="15" fill="url(#bgGradient)" stroke="#1E40AF" stroke-width="1"/>
+  
+  <!-- Inner Circle for Depth -->
+  <circle cx="16" cy="16" r="12" fill="none" stroke="#FFFFFF" stroke-width="0.5" opacity="0.3"/>
+  
+  <!-- GST Text -->
+  <text x="16" y="20" font-family="Arial, sans-serif" font-size="8" font-weight="bold" text-anchor="middle" fill="#FFFFFF">GST</text>
+  
+  <!-- Small Tax Document Symbol -->
+  <path d="M10 8 L22 8 L21 10 L11 10 Z" fill="#FFFFFF" opacity="0.8"/>
+  <path d="M11 10 L21 10 L20 12 L12 12 Z" fill="#FFFFFF" opacity="0.6"/>
+  
+  <!-- Document Lines for Reconciliation -->
+  <line x1="9" y1="24" x2="23" y2="24" stroke="#FFFFFF" stroke-width="1" opacity="0.7"/>
+  <line x1="10" y1="26" x2="22" y2="26" stroke="#FFFFFF" stroke-width="0.8" opacity="0.5"/>
+</svg>

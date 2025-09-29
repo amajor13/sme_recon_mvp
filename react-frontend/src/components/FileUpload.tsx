@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/hooks/use-toast';
+import { useAuth } from '../contexts/AuthContext';
 
 interface FileUploadProps {
   onSuccess: (data: ReconciliationResponse) => void;
@@ -22,6 +23,7 @@ export default function FileUpload({ onSuccess, onLoadingChange }: FileUploadPro
   const [status, setStatus] = useState<StatusMessage | null>(null);
   const [isUploading, setIsUploading] = useState(false);
   const { toast } = useToast();
+  const { getAccessTokenSilently } = useAuth();
 
   const handleFileChange = (type: 'gstr2b' | 'tally', file: File | null) => {
     if (type === 'gstr2b') {
@@ -55,12 +57,18 @@ export default function FileUpload({ onSuccess, onLoadingChange }: FileUploadPro
     updateStatus('Uploading and processing files...', 'info');
 
     try {
+      // Get access token for authenticated API calls
+      const token = await getAccessTokenSilently();
+
       const formData = new FormData();
       formData.append('bank_file', gstr2bFile);
       formData.append('ledger_file', tallyFile);
 
-      const response = await fetch('http://127.0.0.1:8000/upload/', {
+      const response = await fetch('/api/upload/', {
         method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
         body: formData,
       });
 

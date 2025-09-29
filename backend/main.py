@@ -1,4 +1,4 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import pandas as pd
@@ -9,6 +9,11 @@ from datetime import date, datetime
 from typing import Optional, List, Dict, Any
 from difflib import SequenceMatcher
 import Levenshtein
+from dotenv import load_dotenv
+from mock_auth import get_current_user_mock
+
+# Load environment variables
+load_dotenv()
 
 app = FastAPI()
 
@@ -470,7 +475,8 @@ async def read_root():
 @app.post("/upload/")
 async def upload_files(
     bank_file: UploadFile = File(...),
-    ledger_file: UploadFile = File(...)
+    ledger_file: UploadFile = File(...),
+    current_user: dict = Depends(get_current_user_mock)
 ):
     try:
         os.makedirs(UPLOAD_FOLDER, exist_ok=True)

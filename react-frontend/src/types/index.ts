@@ -1,19 +1,33 @@
 export interface ReconciliationMetrics {
+  // Core metrics
+  total_records: number;
   total_matches: number;
+  total_matched_records: number;
+  total_unmatched_records: number;
+  match_rate: number;
+  
+  // Match quality metrics
+  perfect_amount_matches: number;
   high_confidence: number;
   medium_confidence: number;
   low_confidence: number;
   average_score: number;
+  
+  // Financial metrics
+  gstr2b_total: number;
+  tally_total: number;
+  matched_gstr2b_total: number;
+  matched_tally_total: number;
+  unmatched_gstr2b_total: number;
+  unmatched_tally_total: number;
+  total_variance: number;
+  total_amount_differences: number;
+  largest_discrepancy: number;
+  
+  // Legacy fields for compatibility
   unmatched_total: number;
-  unmatched_gstr2b: number;
-  unmatched_tally: number;
-  // Enhanced financial metrics
-  total_gstr2b_amount?: number;
-  total_tally_amount?: number;
-  total_amount_difference?: number;
-  largest_discrepancy?: number;
-  perfect_matches?: number;
-  total_transactions?: number;
+  unmatched_gstr2b?: number;
+  unmatched_tally?: number;
 }
 
 export interface ReconciledTransaction {

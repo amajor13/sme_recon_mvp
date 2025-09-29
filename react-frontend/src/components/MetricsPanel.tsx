@@ -1,6 +1,5 @@
-import { BarChart3, CheckCircle2, ThumbsUp, MinusCircle, AlertTriangle, Target, Percent, DollarSign, TrendingUp, TrendingDown, Calculator } from 'lucide-react';
+import { BarChart3, CheckCircle2, ThumbsUp, MinusCircle, AlertTriangle, Target, Percent, TrendingUp, TrendingDown, Calculator } from 'lucide-react';
 import { ReconciliationMetrics } from '../types';
-import { formatCurrency } from '../utils';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 
@@ -15,89 +14,150 @@ interface MetricCard {
   type: 'success' | 'warning' | 'error' | 'info';
 }
 
-export default function MetricsPanel({ metrics }: MetricsPanelProps) {
-  // Financial insights
-  const totalGstr2b = metrics.total_gstr2b_amount || 0;
-  const totalTally = metrics.total_tally_amount || 0;
-  const totalDifference = metrics.total_amount_difference || 0;
-  const largestDiscrepancy = metrics.largest_discrepancy || 0;
-  const perfectMatches = metrics.perfect_matches || 0;
-  const totalTransactions = metrics.total_transactions || 0;
+// MetricCard component
+function MetricCard({ metric }: { metric: MetricCard }) {
+  const IconComponent = metric.icon;
   
+  const getBadgeVariant = (type: string) => {
+    switch(type) {
+      case 'success':
+        return 'default' as const;
+      case 'warning':
+        return 'secondary' as const;
+      case 'error':
+        return 'destructive' as const;
+      default:
+        return 'outline' as const;
+    }
+  };
+
+  const getIconColorClasses = (type: string) => {
+    switch(type) {
+      case 'success':
+        return 'text-emerald-600 bg-emerald-50';
+      case 'warning':
+        return 'text-amber-600 bg-amber-50';
+      case 'error':
+        return 'text-red-600 bg-red-50';
+      default:
+        return 'text-blue-600 bg-blue-50';
+    }
+  };
+
+  return (
+    <Card className="hover:shadow-md transition-shadow duration-200">
+      <CardContent className="p-6">
+        <div className="flex items-start justify-between mb-4">
+          <div className={`p-3 rounded-lg ${getIconColorClasses(metric.type)}`}>
+            <IconComponent className="w-4 h-4" />
+          </div>
+          <Badge variant={getBadgeVariant(metric.type)} className="text-xs">
+            {metric.type}
+          </Badge>
+        </div>
+        <div className="space-y-1">
+          <p className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
+            {metric.label}
+          </p>
+          <p className="text-2xl font-bold">
+            {metric.value}
+          </p>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+export default function MetricsPanel({ metrics }: MetricsPanelProps) {
+  // Format currency helper
+  const formatCurrency = (amount: number) => {
+    return new Intl.NumberFormat('en-IN', {
+      style: 'currency',
+      currency: 'INR',
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2
+    }).format(amount);
+  };
+
   const metricCards: MetricCard[] = [
-    // Match Quality Metrics
+    // 1. Core Totals - Most Important
+    {
+      label: 'Total Records',
+      value: metrics.total_records || 0,
+      icon: Calculator,
+      type: 'info'
+    },
     {
       label: 'Total Matches',
-      value: metrics.total_matches,
+      value: metrics.total_matches || 0,
       icon: CheckCircle2,
       type: 'success'
     },
     {
       label: 'Perfect Amount Matches',
-      value: perfectMatches,
+      value: metrics.perfect_amount_matches || 0,
       icon: Target,
       type: 'success'
     },
     {
+      label: 'Match Rate',
+      value: `${(metrics.match_rate || 0).toFixed(1)}%`,
+      icon: Percent,
+      type: (metrics.match_rate || 0) >= 80 ? 'success' : (metrics.match_rate || 0) >= 60 ? 'warning' : 'error'
+    },
+
+    // 2. Match Quality Distribution
+    {
       label: 'High Confidence',
-      value: metrics.high_confidence,
+      value: metrics.high_confidence || 0,
       icon: ThumbsUp,
       type: 'success'
     },
     {
       label: 'Medium Confidence',
-      value: metrics.medium_confidence,
+      value: metrics.medium_confidence || 0,
       icon: MinusCircle,
       type: 'warning'
     },
     {
       label: 'Low Confidence',
-      value: metrics.low_confidence,
+      value: metrics.low_confidence || 0,
       icon: AlertTriangle,
       type: 'error'
     },
     {
-      label: 'Match Rate',
-      value: `${((metrics.total_matches / Math.max(totalTransactions, 1)) * 100).toFixed(1)}%`,
-      icon: Percent,
-      type: 'info'
+      label: 'Average Score',
+      value: `${((metrics.average_score || 0) * 100).toFixed(1)}%`,
+      icon: Target,
+      type: (metrics.average_score || 0) >= 0.95 ? 'success' : (metrics.average_score || 0) >= 0.85 ? 'warning' : 'error'
     },
-    // Financial Metrics
+
+    // 3. Financial Totals
     {
       label: 'GSTR2B Total',
-      value: formatCurrency(totalGstr2b),
+      value: formatCurrency(metrics.gstr2b_total || 0),
       icon: TrendingUp,
       type: 'info'
     },
     {
       label: 'Tally Total',
-      value: formatCurrency(totalTally),
+      value: formatCurrency(metrics.tally_total || 0),
       icon: TrendingDown,
       type: 'info'
     },
+    
+    // 4. Variance & Differences
     {
       label: 'Total Variance',
-      value: formatCurrency(Math.abs(totalGstr2b - totalTally)),
+      value: formatCurrency(metrics.total_variance || 0),
       icon: Calculator,
-      type: totalGstr2b === totalTally ? 'success' : 'warning'
-    },
-    {
-      label: 'Amount Differences',
-      value: formatCurrency(totalDifference),
-      icon: DollarSign,
-      type: totalDifference < 1000 ? 'success' : totalDifference < 10000 ? 'warning' : 'error'
+      type: (metrics.total_variance || 0) === 0 ? 'success' : 'warning'
     },
     {
       label: 'Largest Discrepancy',
-      value: formatCurrency(largestDiscrepancy),
+      value: formatCurrency(metrics.largest_discrepancy || 0),
       icon: AlertTriangle,
-      type: largestDiscrepancy < 100 ? 'success' : largestDiscrepancy < 1000 ? 'warning' : 'error'
-    },
-    {
-      label: 'Average Score',
-      value: `${(metrics.average_score * 100).toFixed(1)}%`,
-      icon: Target,
-      type: metrics.average_score >= 0.95 ? 'success' : metrics.average_score >= 0.85 ? 'warning' : 'error'
+      type: (metrics.largest_discrepancy || 0) === 0 ? 'success' : 'warning'
     }
   ];
 
@@ -112,59 +172,36 @@ export default function MetricsPanel({ metrics }: MetricsPanelProps) {
         </div>
       </CardHeader>
       <CardContent>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          {metricCards.map((metric, index) => {
-            const IconComponent = metric.icon;
-            
-            const getBadgeVariant = (type: string) => {
-              switch(type) {
-                case 'success':
-                  return 'default' as const;
-                case 'warning':
-                  return 'secondary' as const;
-                case 'error':
-                  return 'destructive' as const;
-                default:
-                  return 'outline' as const;
-              }
-            };
+        <div className="space-y-6">
+          {/* Core Metrics - Most Important */}
+          <div>
+            <h3 className="text-sm font-medium text-muted-foreground mb-3 uppercase tracking-wide">Core Statistics</h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              {metricCards.slice(0, 4).map((metric, index) => (
+                <MetricCard key={index} metric={metric} />
+              ))}
+            </div>
+          </div>
 
-            const getIconColorClasses = (type: string) => {
-              switch(type) {
-                case 'success':
-                  return 'text-emerald-600 bg-emerald-50';
-                case 'warning':
-                  return 'text-amber-600 bg-amber-50';
-                case 'error':
-                  return 'text-red-600 bg-red-50';
-                default:
-                  return 'text-blue-600 bg-blue-50';
-              }
-            };
-            
-            return (
-              <Card key={index} className="hover:shadow-md transition-shadow duration-200">
-                <CardContent className="p-6">
-                  <div className="flex items-start justify-between mb-4">
-                    <div className={`p-3 rounded-lg ${getIconColorClasses(metric.type)}`}>
-                      <IconComponent className="w-4 h-4" />
-                    </div>
-                    <Badge variant={getBadgeVariant(metric.type)} className="text-xs">
-                      {metric.type}
-                    </Badge>
-                  </div>
-                  <div className="space-y-1">
-                    <p className="text-sm font-medium text-muted-foreground uppercase tracking-wide">
-                      {metric.label}
-                    </p>
-                    <p className="text-2xl font-bold">
-                      {metric.value}
-                    </p>
-                  </div>
-                </CardContent>
-              </Card>
-            );
-          })}
+          {/* Match Quality */}
+          <div>
+            <h3 className="text-sm font-medium text-muted-foreground mb-3 uppercase tracking-wide">Match Quality</h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              {metricCards.slice(4, 8).map((metric, index) => (
+                <MetricCard key={index + 4} metric={metric} />
+              ))}
+            </div>
+          </div>
+
+          {/* Financial Overview */}
+          <div>
+            <h3 className="text-sm font-medium text-muted-foreground mb-3 uppercase tracking-wide">Financial Overview</h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              {metricCards.slice(8).map((metric, index) => (
+                <MetricCard key={index + 8} metric={metric} />
+              ))}
+            </div>
+          </div>
         </div>
       </CardContent>
     </Card>

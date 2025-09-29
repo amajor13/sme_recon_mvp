@@ -34,12 +34,17 @@ env/
 # Project specific
 uploads/*
 !uploads/.gitkeep
+reconciliation.db
 
 # Logs
 *.log
 
 # Environment variables
 .env
+*.env.local
+*.env.development
+*.env.production
+*.env.test
 
 # Node.js
 node_modules/
@@ -58,6 +63,21 @@ package-lock.json
 .cache/
 .parcel-cache/
 .next/
+
+# Python tooling/cache
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+.python-version
+pip-wheel-metadata/
+
+# Local virtualenvs
+.venv/
+venv/
+ENV/
+env/
 
 # OS files
 .DS_Store
